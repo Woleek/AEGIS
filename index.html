@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="description" content="AEGIS: Preserving privacy of 3D Facial Avatars with
+                            Adversarial Perturbations">
+    <meta name="keywords"
+        content="Gaussian Splatting, preserving privacy, adversarial perturbations, face verification">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Title</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+    <link rel="stylesheet" href="./assets/css/bulma.min.css">
+    <link rel="stylesheet" href="./assets/css/bulma-slider.min.css">
+    <link rel="stylesheet" href="./assets/css/fontawesome.all.min.css">
+    <link rel="stylesheet" href="./assets/css/video-comparison-slider.css">
+    <link rel="stylesheet" href="./assets/css/index.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+
+    <!-- custom css file  -->
+    <link rel="stylesheet" href="./assets/css/style.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+</head>
+
+<body>
+
+    <section class="hero">
+        <div class="hero-body">
+            <div class="container is-max-desktop">
+                <div class="columns is-centered">
+                    <div class="column has-text-centered">
+                        <h1 class="title is-1 publication-title">AEGIS: Preserving privacy of 3D Facial Avatars with
+                            Adversarial Perturbations</h1>
+                        <div class="is-size-5 publication-authors">
+                            <span class="author-block">
+                                <a
+                                    href="https://scholar.google.com/citations?view_op=list_works&hl=pl&hl=pl&user=He1Lt6YAAAAJ">Dawid
+                                    Wolkiewicz</a><sup>1</sup>,</span>
+                            <span class="author-block">
+                                <a href="https://scholar.google.com/citations?user=qbRPo6kAAAAJ&hl=pl">Anastasiya
+                                    Pechko</a><sup>2</sup>,</span>
+                            <span class="author-block">
+                                <a href="https://scholar.google.pl/citations?user=0kp0MbgAAAAJ&hl=en">Przemysław
+                                    Spurek</a><sup>2</sup>,
+                            </span>
+                            <span class="author-block">
+                                <a href="https://scholar.google.com/citations?user=lBNIbIMAAAAJ&hl=pl">Piotr
+                                    Syga</a><sup>1</sup>,
+                            </span>
+
+                        </div>
+
+                        <div class="is-size-5 publication-authors">
+                            <span class="author-block"><sup>1</sup>Wrocław University of Science and Technology</span>,
+                            <span class="author-block"><sup>2</sup>Jagiellonian University</span>
+                        </div>
+                        <!--
+                        <div class="column has-text-centered">
+                            <div class="publication-links">
+                                
+                                <span class="link-block">
+                                    <a href="" class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="ai ai-arxiv"></i>
+                                        </span>
+                                        <span>arXiv</span>
+                                    </a>
+                                </span>
+                                
+                                <span class="link-block">
+                                    <a href="" class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="fab fa-github"></i>
+                                        </span>
+                                        <span>Code</span>
+                                    </a>
+                                </span>
+                                
+                                <span class="link-block">
+                                    <a href="" class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="far fa-images"></i>
+                                        </span>
+                                        <span>Data</span>
+                                    </a>
+                            </div>
+
+                        </div>
+-->
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="teaser">
+        <div class="container is-max-desktop">
+            <div class="columns is-centered has-text-centered">
+                <!-- <div class="column is-four-fifths"> -->
+                <div class="column">
+                    <img src="./assets/images/teaser.jpg" />
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <section class="section">
+        <div class="container is-max-desktop">
+            <!-- Abstract. -->
+            <div class="columns is-centered has-text-centered">
+                <div class="column is-four-fifths">
+                    <!-- <div class="column"> -->
+                    <h2 class="title is-3">Abstract</h2>
+                    <div class="content has-text-justified">
+                        <p>
+                            The growing adoption of photorealistic 3D facial avatars, particularly those utilizing
+                            efficient 3D Gaussian Splatting representations, introduces new risks of online identity
+                            theft, especially in systems that rely on biometric authentication. While effective
+                            adversarial masking methods have been developed for 2D images, a significant gap remains in
+                            achieving robust, viewpoint-consistent identity protection for dynamic 3D avatars. To
+                            address this, we present AEGIS, the first privacy-preserving identity masking framework for
+                            3D Gaussian Avatars that maintains subject's perceived characteristics. Our method aims to
+                            conceal identity-related facial features while preserving the avatar’s perceptual realism
+                            and functional integrity. AEGIS applies adversarial perturbations to the Gaussian color
+                            coefficients, guided by a pre-trained face verification network, ensuring consistent
+                            protection across multiple viewpoints without retraining or modifying the avatar’s geometry.
+                            achieves complete de-identification, reducing face retrieval and verification accuracy to
+                            0%, while maintaining high perceptual quality (SSIM = 0.9555, PSNR = 35.52 dB). It also
+                            preserves key facial attributes such as age, race, gender, and emotion, demonstrating strong
+                            privacy protection with minimal visual distortion.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <!--/ Abstract. -->
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container is-max-desktop">
+            <!-- Method. -->
+            <div class="columns is-centered">
+                <div class="column is-full-width">
+                    <h2 class="title is-3">Identity masking pipeline </h2>
+                    <div class="content has-text-justified">
+                        <p>
+                            The process adversarially optimizes the color parameters \( \mathcal{C}^t \)
+                            of a 3D Gaussian avatar \( \mathcal{G} \) to evade face recognition by the model
+                            \( F(\cdot) \). A fixed reference embedding \( \mathbf{e}_r \) is first obtained
+                            by rendering the original avatar \( \mathcal{G}_0 \) under canonical camera
+                            \( \mathbf{v}_r \) and pose \( \mathbf{p}_r \) parameters, and passing the result
+                            through \( F(\cdot) \). During each PGD optimization step, a set of camera
+                            parameters
+                            \( \{ \mathbf{v}_k \}_{k=1}^K \) is sampled to capture diverse viewpoints.
+                            The updated avatar \( \mathcal{G}_t \) is rendered from these viewpoints using the
+                            rendering function \( R(\cdot) \) and alignment module \( A(\cdot) \), producing a
+                            batch of images.
+                            Identity embeddings \( \{\mathbf{e}_k\} \) are then extracted using \( F(\cdot) \),
+                            and their average
+                            cosine similarity \( \bar{s} \) with the reference embedding \( \mathbf{e}_r \) is
+                            computed.
+                            This similarity defines the logits ( \( \bar{s} \) for "match" and \( -\bar{s} \)
+                            for "no match"),
+                            from which a cross-entropy loss is computed while targeting the "no match" class.
+                            The resulting loss is backpropagated through the network using PGD to update the
+                            color parameters
+                            \( \mathcal{C}^t \), yielding an adversarial 3D representation.
+                        </p>
+                    </div>
+                    <div class="column">
+                        <img src="./assets/images/method.jpg" />
+                    </div>
+
+                </div>
+            </div>
+            <!--/ Method. -->
+
+        </div>
+    </section>
+
+
+    <!-- first row -->
+    <section class="section">
+        <div class="container is-max-desktop">
+            <h3 class="title is-4">Masking</h3>
+            <p class="video-desc">Verification results obtained by the AdaFace system for the avatar
+                protected
+                using the AEGIS method with <b>ϵ = 0.1</b>, shown across various rotation angles and pose variations</p>
+            <section class="hero is-light is-small">
+                <div class="hero-body">
+                    <div class="comparison-container">
+
+
+                        <!-- The Video Slider Component -->
+                        <div class="video-comparison-slider" id="video-slider">
+
+                            <!-- Before on the LEFT -->
+                            <div class="video-before">
+                                <video muted autoplay playsinline loop>
+                                    <source src="./assets/comp/masked_video_sim.mp4" type="video/mp4">
+                                </video>
+                            </div>
+
+                            <!-- After on the RIGHT (resizable layer) -->
+                            <div class="video-after" id="video-after-wrapper">
+                                <video muted autoplay playsinline loop>
+                                    <source src="./assets/comp/original_video_sim.mp4" type="video/mp4">
+                                </video>
+                            </div>
+
+                            <!-- Labels -->
+                            <div class="video-label before">Before</div>
+                            <div class="video-label after">After</div>
+
+                            <!-- Slider Handle -->
+                            <div class="slider-handle" id="slider-handle"></div>
+                        </div>
+                        <div class="video-legend">
+                            <div class="legend-items">
+                                <span class="legend-item">
+                                    <strong>Sim</strong> — similarity between reference image and rendered frame
+                                </span>
+                                <span class="legend-item">
+                                    <span class="legend-dot green"></span>
+                                    Green — passed verification
+                                </span>
+
+                                <span class="legend-item">
+                                    <span class="legend-dot red"></span>
+                                    Red — failed verification
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+            </section>
+
+
+
+            <!-- <section class="section" id="BibTeX">
+                <div class="container is-max-desktop content">
+                    <h2 class="title">BibTeX</h2>
+                    <pre><code>@article{,
+  author    = {},
+  title     = {},
+  journal   = {},
+  year      = {},
+}</code></pre>
+                </div>
+            </section> -->
+
+
+            <footer class="footer" margin-top="16px">
+                <div class="columns is-centered">
+
+                    <div class="content">
+
+                        <p>
+                            This website is based on this website's <a
+                                href="https://github.com/sczhou/ProPainter_website" target="_blank">source
+                                code</a>.
+                            It's template is based on <a href="https://github.com/nerfies/nerfies.github.io"
+                                target="_blank">this</a>.
+                            Thank you!
+                        </p>
+
+                    </div>
+
+                </div>
+            </footer>
+            <!-- custom js file  -->
+            <script defer src="./assets/js/fontawesome.all.min.js"></script>
+            <!-- <script src="./assets/js/bulma-carousel.min.js"></script> -->
+            <script src="./assets/js/bulma-slider.min.js"></script>
+            <script src="./assets/js/index.js"></script>
+            <script src="./assets/js/jquery.event.move.js"></script>
+            <script src="./assets/js/jquery.twentytwenty.js"></script>
+            <script>
+                $(function () {
+                    $(".twentytwenty-container").twentytwenty();
+                    //$(".twentytwenty-container", "#results-carousel").twentytwenty({ default_offset_pct: 0.5, ratio: 0.5 });
+                });
+            </script>
+            <script type="module">
+                import { initVideoSlider } from './assets/js/video-comparison-slider.js';
+
+                document.addEventListener('DOMContentLoaded', () => {
+                    initVideoSlider();
+                });
+            </script>
+
+</body>
+
+</html>

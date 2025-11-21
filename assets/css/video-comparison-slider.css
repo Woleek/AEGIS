@@ -1,0 +1,123 @@
+.video-comparison-slider {
+    position: relative;
+    overflow: hidden;
+    cursor: col-resize;
+}
+
+.video-desc {
+    font-size: large;
+    padding-bottom: 8px;
+}
+
+/* BEFORE video = full width (base layer) */
+.video-before video {
+    width: 100%;
+    display: block;
+}
+
+/* AFTER = clipped from the right */
+.video-after {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 50%;
+    /* initial: show right half */
+    overflow: hidden;
+    pointer-events: none;
+}
+
+/* Keep AFTER video aligned to the RIGHT edge */
+.video-after video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: left;
+}
+
+/* Handle bar */
+.slider-handle {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    /* starts center */
+    transform: translateX(-50%);
+    width: 4px;
+    height: 100%;
+    background-color: white;
+    z-index: 10;
+}
+
+.slider-handle::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 40px;
+    height: 40px;
+    border: 2px solid white;
+    border-radius: 50%;
+}
+
+/* Labels */
+.video-label {
+    position: absolute;
+    bottom: 10px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    z-index: 20;
+    pointer-events: none;
+}
+
+.video-label.before {
+    left: 10px;
+}
+
+.video-label.after {
+    right: 10px;
+}
+
+.video-legend {
+    margin-top: 12px;
+    font-size: 0.9em;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: left;
+}
+
+.legend-title {
+    font-weight: bolder;
+    margin-right: 4px;
+}
+
+.legend-items {
+    margin-left: 16px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.legend-dot.green {
+    background-color: #29cc2f;
+}
+
+.legend-dot.red {
+    background-color: #e33e3e;
+}
