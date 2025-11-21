@@ -1,0 +1,56 @@
+[project]
+name = "aegis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "black>=25.1.0",
+    "dearpygui>=2.0.0",
+    "deepface>=0.0.95",
+    "diff-gaussian-rasterization",
+    "eagerpy>=0.30.0",
+    "facenet-pytorch>=2.5.3",
+    "foolbox>=3.3.4",
+    "gdown>=5.2.0",
+    "hsemotion>=0.3.0",
+    "insightface>=0.7.3",
+    "ipykernel>=6.29.5",
+    "ipython>=9.3.0",
+    "ipywidgets>=8.1.7",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.3",
+    "nvdiffrast",
+    "onnxruntime>=1.22.0",
+    "onnxruntime-gpu>=1.23.0",
+    "open3d>=0.19.0",
+    "opencv-python>=4.11.0.86",
+    "plyfile>=1.1.2",
+    "pytorch-lightning>=2.5.2",
+    "pytorch3d>=0.7.8",
+    "roma>=1.5.3",
+    "ruff>=0.14.1",
+    "simple-knn",
+    "tf-keras>=2.20.1",
+    "torch>=2.7.1",
+    "torchvision>=0.22.1",
+    "tqdm>=4.67.1",
+    "tyro>=0.9.35",
+]
+
+[tool.isort]
+profile = "black"
+src_paths = ["src/aegis", "src/aegis"]
+
+[tool.uv.sources]
+nvdiffrast = { git = "https://github.com/NVlabs/nvdiffrast" }
+aegis = { workspace = true }
+
+[[tool.uv.index]]
+name = "pytorch3d"
+url = "https://miropsota.github.io/torch_packages_builder"
+
+[dependency-groups]
+dev = [
+    "aegis",
+]
