@@ -1,5 +1,10 @@
 # AEGIS: Preserving privacy of 3D Facial Avatars with Adversarial Perturbations
 
+[![arXiv](https://img.shields.io/badge/arXiv-000000?style=for-the-badge&logo=arxiv&logoColor=white)](https://www.arxiv.org/abs/2511.17747)
+[![Webpage](https://img.shields.io/badge/Webpage-000000?style=for-the-badge&logo=github&logoColor=white)](https://woleek.github.io/AEGIS/)
+<!-- [![Data](https://img.shields.io/badge/Data-000000?style=for-the-badge&logo=google-drive&logoColor=white)](#) -->
+
+
 **AEGIS** is the first privacy-preserving identity masking framework for 3D Gaussian Avatars that maintains subject's perceived characteristics. Our method aims to conceal identity-related facial features while preserving the avatar’s perceptual realism and functional integrity. AEGIS applies adversarial perturbations to the Gaussian color coefficients, guided by a pre-trained face verification network, ensuring consistent protection across multiple viewpoints without retraining or modifying the avatar’s geometry.
 
 ## Setup
