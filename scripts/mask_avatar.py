@@ -1,4 +1,5 @@
 import argparse
+import json
 from aegis import AEGIS
 
 
@@ -109,12 +110,35 @@ def parse_args() -> argparse.Namespace:
         default="NeRSembleMasked",
         help="Dataset name for output files. Default is 'NeRSembleMasked'.",
     )
+    parser.add_argument(
+        "--adaptive-epsilon",
+        action="store_true",
+        help=(
+            "Enable adaptive regional epsilon budgets."
+        ),
+    )
+    parser.add_argument(
+        "--region-multipliers",
+        type=str,
+        default=None,
+        help=(
+            "JSON string of region->multiplier mappings for adaptive epsilon. "
+            "Example: '{\"skin\": 0.5, \"eyes\": 1.2, \"nose\": 1.0}'. "
+            "If not provided, uses default multipliers."
+        ),
+    )
     args = parser.parse_args()
     return args
 
 
 if __name__ == "__main__":
     args = parse_args()
+
+    # Parse region multipliers JSON if provided
+    region_multipliers = None
+    if args.region_multipliers:
+        region_multipliers = json.loads(args.region_multipliers)
+
     AEGIS(
         embedder_name=args.embedder,
         avatar_dir=args.avatar_dir,
@@ -130,4 +154,6 @@ if __name__ == "__main__":
         ver_threshold=args.ver_threshold,
         seed=args.seed,
         output_name=args.output_name,
+        adaptive_epsilon=args.adaptive_epsilon,
+        region_multipliers=region_multipliers,
     ).run()

@@ -4,7 +4,10 @@ from ..config import ROOT_DIR, DATASETS_DIR
 sys.path.append((ROOT_DIR.resolve() / "GaussianAvatars").as_posix())
 
 from .helpers import (
+    adaptive_linf_pgd_attack,
+    create_adaptive_epsilon_mask,
     ensure_output_structure,
+    DEFAULT_REGION_MULTIPLIERS,
     get_foolbox_attack,
     get_targeted_features,
     normalize_camera_angles,
@@ -46,6 +49,8 @@ class AEGIS:
         ver_threshold: float | None = None,
         seed: int = 42,
         output_name: str = "NeRSembleMasked",
+        adaptive_epsilon: bool = False,
+        region_multipliers: Optional[dict[str, float]] = None,
     ):
         # Prepare experiment
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -81,6 +86,10 @@ class AEGIS:
         self.selected_regions = selected_regions
         self.att_tensor = self._prepare_tensor_for_attack(avatar_dir)
         self.foolbox_model, self.wrapped_module = self.setup_foolbox_attack()
+
+        # Adaptive epsilon settings
+        self.adaptive_epsilon = adaptive_epsilon
+        self.region_multipliers = region_multipliers
 
         # Output settings
         self.avatar_dir = avatar_dir
@@ -258,25 +267,12 @@ class AEGIS:
         original_class = torch.tensor([0], device=self.device)
         target_class = torch.tensor([1], device=self.device)
 
-        attack = get_foolbox_attack(
-            adv_attack_name=self.adv_attack,
-            steps=self.attack_steps,
-            random_start=False,
-        )
-
-        epsilons = None if self.adv_attack.lower() == "ddn" else self.epsilons
-        # print(f"Starting masking avatar...")
-        raw_adv, clipped_adv, is_adv = attack(
-            model=self.foolbox_model,
-            inputs=self.att_tensor.unsqueeze(0),
-            criterion=target_class,
-            epsilons=epsilons,
-        )
-
-        # if self.adv_attack.lower() == "ddn":
-        #     original = self.att_tensor.unsqueeze(0).to(self.device)
-        #     final_eps = torch.norm(clipped_adv[0] - original)
-        #     print(f"DDN final epsilon used: {final_eps.item():.4f}")
+        if self.adaptive_epsilon:
+            # Use custom PGD with per-element epsilon
+            clipped_adv = self._run_adaptive_epsilon_attack(target_class)
+        else:
+            # Use standard Foolbox attack
+            clipped_adv = self._run_foolbox_attack(target_class)
 
         # print("Masking completed.")
         self.save_results(clipped_adv)
@@ -287,3 +283,52 @@ class AEGIS:
                     adv_features.to(self.device)
                 ).item()
             print(f"Epsilon: {eps:.3f} -> Aggregated Cosine Similarity: {adv_sim:.4f}")
+
+    def _run_foolbox_attack(self, target_class: torch.Tensor) -> List[torch.Tensor]:
+        """Run standard Foolbox attack with uniform epsilon."""
+        attack = get_foolbox_attack(
+            adv_attack_name=self.adv_attack,
+            steps=self.attack_steps,
+            random_start=False,
+        )
+
+        epsilons = None if self.adv_attack.lower() == "ddn" else self.epsilons
+        raw_adv, clipped_adv, is_adv = attack(
+            model=self.foolbox_model,
+            inputs=self.att_tensor.unsqueeze(0),
+            criterion=target_class,
+            epsilons=epsilons,
+        )
+        return clipped_adv
+
+    def _run_adaptive_epsilon_attack(
+        self, target_class: torch.Tensor
+    ) -> List[torch.Tensor]:
+        """Run custom PGD attack with per-Gaussian adaptive epsilon."""
+        if self.gaussians is None:
+            raise RuntimeError("Gaussians must be loaded before running attack.")
+
+        clipped_adv = []
+        for base_eps in self.epsilons:
+            # Create per-Gaussian epsilon mask
+            full_eps = create_adaptive_epsilon_mask(
+                gaussians=self.gaussians,
+                base_epsilon=base_eps,
+                region_multipliers=self.region_multipliers,
+            )
+
+            # Apply mask to get epsilon for attacked Gaussians only
+            eps_for_attack = full_eps[self.mask]
+
+            # Run adaptive PGD attack
+            adv_features = adaptive_linf_pgd_attack(
+                model=self.wrapped_module,
+                inputs=self.att_tensor.to(self.device),
+                epsilon_per_element=eps_for_attack,
+                target_class=target_class,
+                steps=self.attack_steps,
+                random_start=False,
+            )
+            clipped_adv.append(adv_features)
+
+        return clipped_adv

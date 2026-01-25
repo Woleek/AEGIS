@@ -11,4 +11,5 @@ wheels/
 models/*
 datasets/*
 output/*
+ext/*
 GaussianAvatars
