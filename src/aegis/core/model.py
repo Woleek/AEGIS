@@ -28,6 +28,7 @@ import shutil
 from copy import deepcopy
 from pathlib import Path
 from typing import List, Optional, Tuple
+from tqdm import tqdm
 
 
 class AEGIS:
@@ -253,9 +254,12 @@ class AEGIS:
                     new_colors=new_features,
                     output_ply_path=ply_output_path,
                 )
-                shutil.copyfile(
-                    orig_flame_path, ply_output_path.parent / "flame_param.npz"
-                )
+
+                # Copy FLAME parameters if exist
+                if orig_flame_path.exists():
+                    shutil.copyfile(
+                        orig_flame_path, ply_output_path.parent / "flame_param.npz"
+                    )
 
     def run(self) -> None:
         # with torch.no_grad():
@@ -292,13 +296,34 @@ class AEGIS:
             random_start=False,
         )
 
-        epsilons = None if self.adv_attack.lower() == "ddn" else self.epsilons
-        raw_adv, clipped_adv, is_adv = attack(
-            model=self.foolbox_model,
-            inputs=self.att_tensor.unsqueeze(0),
-            criterion=target_class,
-            epsilons=epsilons,
-        )
+        # Create progress bar for attack steps
+        num_epsilons = 1 if self.adv_attack.lower() == "ddn" else len(self.epsilons)
+        total_steps = self.attack_steps * num_epsilons
+
+        # Wrap the model to track forward passes
+        original_forward = self.wrapped_module.forward
+        pbar = tqdm(total=total_steps, desc="Foolbox Attack Steps", unit="step")
+
+        def forward_with_progress(*args, **kwargs):
+            result = original_forward(*args, **kwargs)
+            pbar.update(1)
+            return result
+
+        self.wrapped_module.forward = forward_with_progress
+
+        try:
+            epsilons = None if self.adv_attack.lower() == "ddn" else self.epsilons
+            raw_adv, clipped_adv, is_adv = attack(
+                model=self.foolbox_model,
+                inputs=self.att_tensor.unsqueeze(0),
+                criterion=target_class,
+                epsilons=epsilons,
+            )
+        finally:
+            # Restore original forward method
+            self.wrapped_module.forward = original_forward
+            pbar.close()
+
         return clipped_adv
 
     def _run_adaptive_epsilon_attack(
@@ -309,7 +334,7 @@ class AEGIS:
             raise RuntimeError("Gaussians must be loaded before running attack.")
 
         clipped_adv = []
-        for base_eps in self.epsilons:
+        for base_eps in tqdm(self.epsilons, desc="Processing epsilons", unit="eps"):
             # Create per-Gaussian epsilon mask
             full_eps = create_adaptive_epsilon_mask(
                 gaussians=self.gaussians,

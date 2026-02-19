@@ -77,7 +77,8 @@ def load_gaussians(
     else:
         raise FileNotFoundError(f"{point_path} does not exist.")
 
-    reset_flame_params(gaussians)
+    if isinstance(gaussians, FlameGaussianModel):
+        reset_flame_params(gaussians)
     if select_regions:
         return gaussians, mask
     return gaussians

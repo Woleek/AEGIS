@@ -10,6 +10,7 @@ from plyfile import PlyData
 
 from gaussian_renderer import FlameGaussianModel
 import torch
+from tqdm import tqdm
 
 
 def get_foolbox_attack(
@@ -116,6 +117,7 @@ def ensure_output_structure(
         (eps_dir / "renders").mkdir(parents=True, exist_ok=True)
         (eps_dir / "avatars" / avatar_id).mkdir(parents=True, exist_ok=True)
 
+
 # Available regions:
 # Eyes: left_eye, right_eye, left_eyeball, right_eyeball, left_eye_region, right_eye_region, eyeballs, left_eyelid, right_eyelid, eyelids, left_iris, right_iris, irises, sclerae, eye_region
 # Mouth: lips, lips_tight, lip_inside, lip_inside_ring, lip_inside_upper, lip_inside_lower
@@ -124,19 +126,17 @@ def ensure_output_structure(
 # Other: boundary, bottomline
 DEFAULT_REGION_MULTIPLIERS = {
     # Identity-critical regions: higher epsilon for stronger privacy protection
-    "left_eye": 1.3,      # Eye region + eyeball (includes left_eye_region + left_eyeball)
-    "right_eye": 1.3,     # Eye region + eyeball (includes right_eye_region + right_eyeball)
-    "nose": 1.2,          # Nose bridge and tip
-
+    "left_eye": 1.3,  # Eye region + eyeball (includes left_eye_region + left_eyeball)
+    "right_eye": 1.3,  # Eye region + eyeball (includes right_eye_region + right_eyeball)
+    "nose": 1.2,  # Nose bridge and tip
     # Facial features: balanced epsilon
-    "lips": 1.0,          # Mouth region
-    "forehead": 0.6,      # Upper face
-
+    "lips": 1.0,  # Mouth region
+    "forehead": 0.6,  # Upper face
     # Less critical regions: lower epsilon to reduce visible artifacts
-    "skin": 0.7,          # General skin (auto-computed, excludes other regions)
-    "ears": 0.7,          # Both ears combined
-    "neck": 0.5,          # Neck region
-    "scalp": 0.4,         # Hair/scalp region
+    "skin": 0.7,  # General skin (auto-computed, excludes other regions)
+    "ears": 0.7,  # Both ears combined
+    "neck": 0.5,  # Neck region
+    "scalp": 0.4,  # Hair/scalp region
 }
 
 
@@ -242,7 +242,7 @@ def adaptive_linf_pgd_attack(
 
     delta.requires_grad_(True)
 
-    for _ in range(steps):
+    for _ in tqdm(range(steps), desc="PGD Attack Steps", leave=False):
         if delta.grad is not None:
             delta.grad.zero_()
 

@@ -61,9 +61,9 @@ class RankKEvaluator:
             order = np.argsort(similarities)
             for k_offset, rank in enumerate(order):
                 candidate_key = ref_keys[rank]
-                print(
-                    f"Comparing query '{query_key}' to candidate '{candidate_key}' at rank {k_offset + 1}"
-                )
+                # print(
+                #     f"Comparing query '{query_key}' to candidate '{candidate_key}' at rank {k_offset + 1}"
+                # )
                 try:
                     candidate_id = self.identity_lookup.lookup(candidate_key)
 

@@ -40,8 +40,8 @@ def parse_args() -> argparse.Namespace:
         "--embedder",
         type=str,
         default="adaface",
-        choices=["arcface", "adaface"],
-        help="Face verification model to use. Choices are 'arcface' or 'adaface'. Default is 'adaface'.",
+        choices=["arcface", "adaface", "swinface", "transface"],
+        help="Face verification model to use. Choices are 'arcface', 'adaface', 'swinface', or 'transface'. Default is 'adaface'.",
     )
     parser.add_argument(
         "--select-regions",
@@ -113,9 +113,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--adaptive-epsilon",
         action="store_true",
-        help=(
-            "Enable adaptive regional epsilon budgets."
-        ),
+        help=("Enable adaptive regional epsilon budgets."),
     )
     parser.add_argument(
         "--region-multipliers",
@@ -123,7 +121,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "JSON string of region->multiplier mappings for adaptive epsilon. "
-            "Example: '{\"skin\": 0.5, \"eyes\": 1.2, \"nose\": 1.0}'. "
+            'Example: \'{"skin": 0.5, "eyes": 1.2, "nose": 1.0}\'. '
             "If not provided, uses default multipliers."
         ),
     )

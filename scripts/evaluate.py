@@ -20,7 +20,13 @@ from aegis.evaluation.evaluators import (
 from aegis.evaluation.stores import (
     load_embeddings,
 )
-from aegis.models import AdaFaceEmbedder, ArcFaceEmbedder, resolve_compute_device
+from aegis.models import (
+    AdaFaceEmbedder,
+    ArcFaceEmbedder,
+    SwinFaceEmbedder,
+    TransFaceEmbedder,
+    resolve_compute_device,
+)
 from aegis.utils import load_image_map, ensure_csv_parent
 import argparse
 import sys
@@ -64,13 +70,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--gallery-dataset",
         dest="gallery_datasets",
         action="append",
-        choices=["CelebA", "lfw", "NeRSembleGT"],
+        choices=["CelebA", "lfw", "NeRSembleGT", "FaceScapeGT", "CombinedGT"],
         default=None,
         help="Datasets to enrol as the gallery (repeatable)",
     )
     parser.add_argument(
         "--anonymized-dataset",
-        choices=["CelebA", "lfw", "NeRSembleGT", "NeRSembleReconst"],
+        choices=[
+            "CelebA",
+            "lfw",
+            "NeRSembleGT",
+            "NeRSembleReconst",
+            "FaceScapeGT",
+            "FaceScapeReconst",
+            "CombinedGT",
+            "CombinedReconst",
+        ],
         default=None,
         help="Dataset definition whose anonymised renders are supplied",
     )
@@ -106,7 +121,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gallery-extra",
         action="append",
-        choices=["CelebA", "lfw", "NeRSembleGT"],
+        choices=["CelebA", "lfw", "NeRSembleGT", "FaceScapeGT", "CombinedGT"],
         default=[],
         help="(deprecated) Additional datasets to enrol into the gallery (use --gallery-dataset instead)",
     )
@@ -123,7 +138,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
-    parser.add_argument("--embedder", choices=["arcface", "adaface"], default="arcface")
+    parser.add_argument(
+        "--embedder",
+        choices=["arcface", "adaface", "swinface", "transface"],
+        default="arcface",
+    )
     parser.add_argument(
         "--query-extension",
         type=str,
@@ -147,7 +166,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-verification-pairs", type=int, default=5000)
     parser.add_argument(
         "--verification-threshold-dataset",
-        choices=["CelebA", "lfw", "NeRSembleGT"],
+        choices=["CelebA", "lfw", "NeRSembleGT", "FaceScapeGT"],
         default=None,
         help="Dataset used to fit the verification decision threshold (defaults to --anonymized-dataset).",
     )
@@ -278,6 +297,18 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             batch_size=args.batch_size,
             model_path=args.adaface_model_path,
             model_type=args.adaface_model_type,
+        )
+    elif args.embedder == "swinface":
+        cache_suffix = "swinface"
+        embedder = SwinFaceEmbedder(
+            device=device,
+            batch_size=args.batch_size,
+        )
+    elif args.embedder == "transface":
+        cache_suffix = "transface"
+        embedder = TransFaceEmbedder(
+            device=device,
+            batch_size=args.batch_size,
         )
     else:  # pragma: no cover - defensive programming
         raise ValueError(f"Unsupported embedder {args.embedder}")

@@ -16,7 +16,7 @@ class DatasetIdentityLookup:
 class DatasetSpec:
     """Small container describing where images and metadata live."""
 
-    name: Literal["CelebA", "lfw", "NeRSembleGT"]
+    name: Literal["CelebA", "lfw", "NeRSembleGT", "FaceScapeGT", "CombinedGT"]
     root: Path
     images_subdir: Path
     file_extension: str
@@ -160,7 +160,7 @@ class CompositeIdentityLookup(DatasetIdentityLookup):
 
 
 def resolve_dataset(
-    dataset_name: Literal["CelebA", "lfw", "NeRSembleGT"],
+    dataset_name: Literal["CelebA", "lfw", "NeRSembleGT", "FaceScapeGT", "CombinedGT"],
     celeba_test_set_only: bool = False,
 ) -> DatasetSpec:
     if dataset_name == "CelebA":
@@ -186,7 +186,14 @@ def resolve_dataset(
             file_extension=".jpg",
             identity_lookup=identity_lookup,
         )
-    if dataset_name in ["NeRSembleGT", "NeRSembleReconst"]:
+    if dataset_name in [
+        "NeRSembleGT",
+        "NeRSembleReconst",
+        "FaceScapeGT",
+        "FaceScapeReconst",
+        "CombinedGT",
+        "CombinedReconst",
+    ]:
         root = DATASETS_DIR / dataset_name
         if not root.exists():
             raise FileNotFoundError(
@@ -197,7 +204,9 @@ def resolve_dataset(
             name=dataset_name,
             root=root,
             images_subdir=(
-                Path("images") if dataset_name == "NeRSembleGT" else Path("renders")
+                Path("images")
+                if dataset_name in ["NeRSembleGT", "FaceScapeGT", "CombinedGT"]
+                else Path("renders")
             ),
             file_extension=".png",
             identity_lookup=identity_lookup,
