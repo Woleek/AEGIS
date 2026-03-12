@@ -13,3 +13,4 @@ datasets/*
 output/*
 ext/*
 GaussianAvatars
+.env

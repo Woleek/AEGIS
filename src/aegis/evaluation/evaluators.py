@@ -160,24 +160,35 @@ class UtilityEvaluator:
         # - Race Classification
         # - Age Prediction
 
-        # calculate utility metrics for each image pair
-        emotion, gender, race, age = self._measure_utility()
-        ssim = self._calculate_ssim()
-        psnr = self._calculate_psnr()
+        # Build path lookup keyed by bare filename (e.g. "074.png")
+        path_by_filename: Dict[str, Tuple[Path, Path]] = {}
+        for real_path, anon_path in self.paired_paths:
+            path_by_filename[real_path.name] = (real_path, anon_path)
 
-        # Combine results into a DataFrame
-        results = {
-            "ssim": ssim,
-            "psnr": psnr,
-            "emotion_match": emotion,
-            "gender_match": gender,
-            "race_match": race,
-            "age_diff": age,
-        }
-        return pd.DataFrame([results])
+        ssim_scores = self._calculate_ssim()
+        psnr_scores = self._calculate_psnr()
+        attr_by_filename = self._measure_utility(path_by_filename)
 
-    def _calculate_ssim(self) -> float:
-        # Calculate SSIM for each image pair
+        rows = []
+        for key, ssim_val, psnr_val in zip(self.paired_keys, ssim_scores, psnr_scores):
+            # Extract bare filename: "CombinedReconst___074.png" → "074.png"
+            filename = key.split("___")[-1] if "___" in key else key
+            subject_id = Path(filename).stem
+            em, gm, rm, ad = attr_by_filename.get(filename, (float("nan"),) * 4)
+            rows.append(
+                {
+                    "subject_id": subject_id,
+                    "ssim": ssim_val,
+                    "psnr": psnr_val,
+                    "emotion_match": em,
+                    "gender_match": gm,
+                    "race_match": rm,
+                    "age_diff": ad,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    def _calculate_ssim(self) -> List[float]:
         scores: List[float] = []
         for key in tqdm(self.paired_keys, desc="Calculating SSIM"):
             real_img = self.real_images[key]
@@ -188,7 +199,6 @@ class UtilityEvaluator:
 
             bboxes, _ = self.detection_model.detect(real_rgb, max_num=1)
 
-            # crop both images to face region if detected
             if bboxes is not None and len(bboxes) > 0:
                 x1, y1, x2, y2, _ = bboxes[0].astype(int)
                 real_rgb = real_rgb[y1:y2, x1:x2]
@@ -199,12 +209,9 @@ class UtilityEvaluator:
             )
             scores.append(float(ssim_value))
 
-        if not scores:
-            return float("nan")
-        return float(np.mean(scores))
+        return scores
 
-    def _calculate_psnr(self) -> float:
-        # Calculate PSNR for each image pair
+    def _calculate_psnr(self) -> List[float]:
         scores: List[float] = []
         for key in tqdm(self.paired_keys, desc="Calculating PSNR"):
             real_img = self.real_images[key]
@@ -215,7 +222,6 @@ class UtilityEvaluator:
 
             bboxes, _ = self.detection_model.detect(real_rgb, max_num=1)
 
-            # crop both images to face region if detected
             if bboxes is not None and len(bboxes) > 0:
                 x1, y1, x2, y2, _ = bboxes[0].astype(int)
                 real_rgb = real_rgb[y1:y2, x1:x2]
@@ -224,21 +230,20 @@ class UtilityEvaluator:
             psnr_value = peak_signal_noise_ratio(real_rgb, anon_rgb, data_range=255)
             scores.append(float(psnr_value))
 
-        if not scores:
-            return float("nan")
-        return float(np.mean(scores))
+        return scores
 
-    def _measure_utility(self) -> float:
-        # Measure all utility metrics for each image pair
-        emotion_matches: List[bool] = []
-        gender_matches: List[bool] = []
-        race_matches: List[bool] = []
-        age_differences: List[float] = []
+    def _measure_utility(
+        self, path_by_filename: Dict[str, Tuple[Path, Path]]
+    ) -> Dict[str, Tuple]:
+        """Returns results keyed by bare filename (e.g. '074.png')."""
+        results: Dict[str, Tuple] = {}
 
-        # Get paths for paired images
-        for real_path, anon_path in tqdm(
-            self.paired_paths, desc="Measuring utility metrics"
-        ):
+        for key in tqdm(self.paired_keys, desc="Measuring utility metrics"):
+            filename = key.split("___")[-1] if "___" in key else key
+            pair = path_by_filename.get(filename)
+            if pair is None:
+                continue
+            real_path, anon_path = pair
             try:
                 real_analysis = DeepFace.analyze(
                     img_path=str(real_path),
@@ -254,39 +259,27 @@ class UtilityEvaluator:
                 print(f"Error analyzing images {real_path} and {anon_path}: {e}")
                 continue
 
-            # Emotion match
-            real_emotion = real_analysis[0]["dominant_emotion"]
-            anon_emotion = anon_analysis[0]["dominant_emotion"]
-            emotion_matches.append(real_emotion == anon_emotion)
+            emotion_match = (
+                real_analysis[0]["dominant_emotion"]
+                == anon_analysis[0]["dominant_emotion"]
+            )
+            gender_match = (
+                real_analysis[0]["dominant_gender"]
+                == anon_analysis[0]["dominant_gender"]
+            )
+            race_match = (
+                real_analysis[0]["dominant_race"] == anon_analysis[0]["dominant_race"]
+            )
+            age_diff = abs(real_analysis[0]["age"] - anon_analysis[0]["age"])
 
-            # Gender match
-            real_gender = real_analysis[0]["dominant_gender"]
-            anon_gender = anon_analysis[0]["dominant_gender"]
-            gender_matches.append(real_gender == anon_gender)
+            results[filename] = (
+                float(emotion_match),
+                float(gender_match),
+                float(race_match),
+                float(age_diff),
+            )
 
-            # Race match
-            real_race = real_analysis[0]["dominant_race"]
-            anon_race = anon_analysis[0]["dominant_race"]
-            race_matches.append(real_race == anon_race)
-
-            # Age difference
-            real_age = real_analysis[0]["age"]
-            anon_age = anon_analysis[0]["age"]
-            age_differences.append(abs(real_age - anon_age))
-
-        # Calculate average metrics
-        emotion_match_rate = (
-            float(np.mean(emotion_matches)) if emotion_matches else float("nan")
-        )
-        gender_match_rate = (
-            float(np.mean(gender_matches)) if gender_matches else float("nan")
-        )
-        race_match_rate = float(np.mean(race_matches)) if race_matches else float("nan")
-        age_difference = (
-            float(np.mean(age_differences)) if age_differences else float("nan")
-        )
-
-        return emotion_match_rate, gender_match_rate, race_match_rate, age_difference
+        return results
 
 
 class PairVerificationEvaluator:

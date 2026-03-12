@@ -52,6 +52,7 @@ class AEGIS:
         output_name: str = "NeRSembleMasked",
         adaptive_epsilon: bool = False,
         region_multipliers: Optional[dict[str, float]] = None,
+        radius: float = 1,
     ):
         # Prepare experiment
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -62,7 +63,7 @@ class AEGIS:
         self.camera_angles = normalize_camera_angles(camera_boundary_angles)
         self.angle_aggregation = angle_aggregation
         self.k_angles = k_angles
-        self.pipeline, self.root_cam = self._init_orbit_cam()
+        self.pipeline, self.root_cam = self._init_orbit_cam(radius=radius)
 
         # Prepare verifier
         self.ver_threshold = ver_threshold
