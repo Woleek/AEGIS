@@ -21,12 +21,7 @@ from aegis.evaluation.stores import (
     load_embeddings,
 )
 from aegis.models import (
-    AdaFaceEmbedder,
-    ArcFaceEmbedder,
-    CosFaceEmbedder,
-    FaceNetEmbedder,
-    SwinFaceEmbedder,
-    TransFaceEmbedder,
+    get_eval_embedder,
     resolve_compute_device,
 )
 from aegis.utils import load_image_map, ensure_csv_parent
@@ -142,7 +137,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     parser.add_argument(
         "--embedder",
-        choices=["arcface", "adaface", "swinface", "transface", "facenet", "cosface"],
+        choices=["arcface", "adaface", "swinface", "transface", "facenet", "cosface", "ir152", "irse50", "mobileface"],
         default="arcface",
     )
     parser.add_argument(
@@ -176,6 +171,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--force-threshold-recompute",
         action="store_true",
         help="Force recomputation of verification threshold even if a cached result exists.",
+    )
+    parser.add_argument(
+        "--verification-protocol",
+        choices=["tar_at_far", "eer"],
+        default="tar_at_far",
+        help="Protocol used to fit the verification decision threshold (default: tar_at_far). "
+        "EER is always computed and reported regardless of this choice.",
+    )
+    parser.add_argument(
+        "--target-far",
+        type=float,
+        default=1e-3,
+        help="Target False Acceptance Rate for the tar_at_far protocol (default: 1e-3).",
     )
     parser.add_argument("--random-seed", type=int, default=1337)
     parser.add_argument(
@@ -338,43 +346,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     label = args.label or anonymized_label
 
     device = resolve_compute_device(args.device)
-    if args.embedder == "arcface":
-        cache_suffix = "arcface"
-        embedder = ArcFaceEmbedder(device=device, batch_size=args.batch_size)
-    elif args.embedder == "adaface":
+    variant = None
+    if args.embedder == "adaface":
+        variant = args.adaface_model_type           # preserve existing CLI knob
         cache_suffix = f"adaface_{args.adaface_model_type}"
-        embedder = AdaFaceEmbedder(
-            device=device,
-            batch_size=args.batch_size,
-            model_path=args.adaface_model_path,
-            model_type=args.adaface_model_type,
-        )
-    elif args.embedder == "swinface":
-        cache_suffix = "swinface"
-        embedder = SwinFaceEmbedder(
-            device=device,
-            batch_size=args.batch_size,
-        )
-    elif args.embedder == "transface":
-        cache_suffix = "transface"
-        embedder = TransFaceEmbedder(
-            device=device,
-            batch_size=args.batch_size,
-        )
-    elif args.embedder == "facenet":
-        cache_suffix = "facenet"
-        embedder = FaceNetEmbedder(
-            device=device,
-            batch_size=args.batch_size,
-        )
-    elif args.embedder == "cosface":
-        cache_suffix = "cosface"
-        embedder = CosFaceEmbedder(
-            device=device,
-            batch_size=args.batch_size,
-        )
-    else:  # pragma: no cover - defensive programming
-        raise ValueError(f"Unsupported embedder {args.embedder}")
+    else:
+        cache_suffix = args.embedder
+    embedder = get_eval_embedder(
+        args.embedder, device, batch_size=args.batch_size, variant=variant
+    )
 
     identity_mapping: Dict[str, DatasetIdentityLookup] = {}
     gallery_embeddings: Dict[str, np.ndarray] = {}
@@ -468,6 +448,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             real_paths=real_paths,
             anon_images=anon_images,
             anon_paths=anon_paths,
+            device=str(device),
         )
         df = evaluator.run()
         if args.label:
@@ -583,12 +564,26 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             num_pairs=args.num_verification_pairs,
             random_seed=args.random_seed,
             force_recompute=args.force_threshold_recompute,
+            protocol=args.verification_protocol,
+            target_far=args.target_far,
         )
 
-        print(
-            f"Using verification threshold {threshold_result.eer_score_threshold:.4f} derived from {threshold_dataset_name} "
-            f"(EER {threshold_result.eer:.2%}; cache: {threshold_result.cache_file})."
-        )
+        # Similarity-space decision threshold selected by the chosen protocol.
+        decision_score_threshold = threshold_result.score_threshold
+        if threshold_result.protocol == "tar_at_far":
+            print(
+                f"Using TAR@FAR threshold {decision_score_threshold:.4f} "
+                f"(target FAR {threshold_result.target_far:.0e}; "
+                f"TAR {threshold_result.tar_at_far:.2%}, FAR {threshold_result.far_at_far:.2%}, "
+                f"FRR {threshold_result.frr_at_far:.2%}) derived from {threshold_dataset_name} "
+                f"(EER {threshold_result.eer:.2%}; EER thr {threshold_result.eer_score_threshold:.4f}; "
+                f"cache: {threshold_result.cache_file})."
+            )
+        else:
+            print(
+                f"Using EER threshold {decision_score_threshold:.4f} derived from {threshold_dataset_name} "
+                f"(EER {threshold_result.eer:.2%}; cache: {threshold_result.cache_file})."
+            )
         if threshold_result.plot_path.exists():
             print(f"FAR/FRR curve saved to {threshold_result.plot_path}.")
 
@@ -656,7 +651,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
         # 6. Build pairs by comparing all real against all anonymized
         rows = []
-        threshold = threshold_result.eer_score_threshold
+        # Primary decision threshold follows the selected protocol (default
+        # tar_at_far). The EER threshold is kept available for the match_eer
+        # column so the EER protocol stays reported.
+        threshold = decision_score_threshold
+        eer_threshold = threshold_result.eer_score_threshold
+        tar_far_threshold = threshold_result.tar_at_far_threshold
 
         all_anon_identities = list(anon_id_to_emb.keys())
 
@@ -689,9 +689,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     {
                         "subject_id": anon_id,
                         "emb_idx": anon_emb_idx,
+                        # `match` follows the selected protocol's threshold.
                         "match": True if pred == 1 else False,
                         "max_similarity": max_similarity,
                         "min_similarity": min_similarity,
+                        # Per-protocol decisions kept side by side so both the
+                        # TAR@FAR and EER operating points stay reported.
+                        "match_eer": bool(max_similarity >= eer_threshold),
+                        "match_tar_at_far": bool(max_similarity >= tar_far_threshold),
                     }
                 )
 
@@ -716,6 +721,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             threshold_result.distance_threshold,
             threshold_result.eer,
             threshold_result.eer_score_threshold,
+            protocol=threshold_result.protocol,
+            target_far=threshold_result.target_far,
+            tar_at_far=threshold_result.tar_at_far,
         )
         return
 
@@ -741,6 +749,7 @@ def report_utility(df: pd.DataFrame) -> None:
     for metric in [
         "ssim",
         "psnr",
+        "fid",
         "age_diff",
         "emotion_match",
         "gender_match",
@@ -750,6 +759,9 @@ def report_utility(df: pd.DataFrame) -> None:
             value = df[metric].mean()
             if metric == "age_diff":
                 print(f"Average Age Difference: {value:.2f} years")
+            elif metric == "fid":
+                # Set-level scalar broadcast across all rows (mean == the value).
+                print(f"FID (unmasked vs masked, set-level): {value:.4f}")
             elif metric in ["ssim", "psnr"]:
                 std = df[metric].std()
                 print(f"Average {metric.upper()}: {value:.4f} ± {std:.4f}")
@@ -762,18 +774,28 @@ def report_verification(
     threshold: float,
     fitted_eer: Optional[float] = None,
     fitted_eer_score: Optional[float] = None,
+    protocol: str = "eer",
+    target_far: float = 0.0,
+    tar_at_far: float = 0.0,
 ) -> None:
     if df.empty:
         print("No verification pairs available")
         return
     accuracy = df["match"].mean()
     print("================ Verification Results ================")
+    print(f"Protocol: {protocol}")
     print(f"Threshold (fitted on real pairs): {threshold:.4f}")
+    if protocol == "tar_at_far":
+        print(f"Target FAR: {target_far:.0e}  (gallery TAR@FAR: {tar_at_far:.2%})")
     if fitted_eer is not None:
         print(f"Gallery EER (real pairs): {fitted_eer:.2%}")
     if fitted_eer_score is not None:
         print(f"EER score threshold (cosine similarity): {fitted_eer_score:.4f}")
     print(f"Match accuracy (on anonymized dataset): {accuracy:.2%}")
+    if "match_eer" in df.columns:
+        print(f"Match accuracy @ EER threshold: {df['match_eer'].mean():.2%}")
+    if "match_tar_at_far" in df.columns:
+        print(f"Match accuracy @ TAR@FAR threshold: {df['match_tar_at_far'].mean():.2%}")
 
 
 if __name__ == "__main__":

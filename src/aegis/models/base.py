@@ -1,9 +1,12 @@
 import os
+import hashlib
 import insightface
 import numpy as np
+from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 import torch
-from typing import Dict, Iterator, Literal, Sequence, Tuple
+from typing import Any, Dict, Iterator, Literal, Protocol, Sequence, Tuple, cast, runtime_checkable
 
 import torch.nn.functional as F
 
@@ -138,3 +141,214 @@ def warp_affine_pytorch(
     )
 
     return aligned_image
+
+
+class FaceVerificationError(RuntimeError):
+    """Base class for face verification failures."""
+
+
+class FaceNotDetectedError(FaceVerificationError):
+    """Raised when a face cannot be detected or aligned."""
+
+
+class ModelAssetMissingError(FaceVerificationError):
+    """Raised when required model files are unavailable."""
+
+
+class UnsupportedModelVariantError(FaceVerificationError):
+    """Raised when a requested model variant is not registered."""
+
+
+@dataclass(frozen=True)
+class ModelAssetSpec:
+    """A required runtime asset for a face verification model."""
+
+    key: str
+    path: Path
+    description: str
+    source_url: str | None = None
+    sha256: str | None = None
+    install_hint: str | None = None
+    auto_download: bool = False
+    alt_paths: tuple[Path, ...] = field(default_factory=tuple)
+
+    def expanded_path(self) -> Path:
+        return Path(os.path.expanduser(self.path.as_posix()))
+
+    def expanded_alt_paths(self) -> tuple[Path, ...]:
+        return tuple(Path(os.path.expanduser(path.as_posix())) for path in self.alt_paths)
+
+    def candidate_paths(self) -> tuple[Path, ...]:
+        return (self.expanded_path(), *self.expanded_alt_paths())
+
+
+@dataclass(frozen=True)
+class VerificationModelSpec:
+    """Declarative metadata for a face verification model variant."""
+
+    name: str
+    variant: str
+    display_name: str
+    embedding_dim: int
+    input_size: tuple[int, int]
+    normalization: str
+    detector: str | None = None
+    alignment: str | None = None
+    threshold: float | None = None
+    assets: tuple[ModelAssetSpec, ...] = field(default_factory=tuple)
+    requirements: tuple[str, ...] = field(default_factory=tuple)
+    notes: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def model_id(self) -> str:
+        return f"{self.name}:{self.variant}"
+
+
+@runtime_checkable
+class FaceEmbedder(Protocol):
+    """Runtime contract expected by the attack and verification pipelines."""
+
+    spec: VerificationModelSpec
+    device: torch.device
+
+    def embed(self, image: torch.Tensor) -> torch.Tensor: ...
+
+    def embed_batch(
+        self,
+        images: list[torch.Tensor],
+        detections: "list[FaceDetection | None] | None" = None,
+    ) -> list[torch.Tensor | None]: ...
+
+    def validate_assets(self) -> None: ...
+
+    def __call__(self, image: torch.Tensor) -> torch.Tensor: ...
+
+
+class FaceDetector(Protocol):
+    """Minimal detector interface used by the FR wrappers."""
+
+    def prepare(self, ctx_id: int, **kwargs: Any) -> None: ...
+
+    def detect(
+        self,
+        img: Any,
+        input_size: Any | None = None,
+        max_num: int = 0,
+        metric: str = "default",
+    ) -> tuple[Any, Any | None]: ...
+
+
+def get_detector_asset_path(package_name: str = "buffalo_l", filename: str = "det_10g.onnx") -> Path:
+    """Return the expected path of an InsightFace detector asset."""
+
+    return Path(f"~/.insightface/models/{package_name}/{filename}").expanduser()
+
+
+def ensure_asset_present(asset: ModelAssetSpec) -> Path:
+    """Validate that a model asset exists and matches the declared hash when given."""
+
+    for path in asset.candidate_paths():
+        if not path.exists():
+            continue
+        if asset.sha256 is not None:
+            digest = compute_file_sha256(path)
+            if digest != asset.sha256:
+                raise ModelAssetMissingError(
+                    f"Asset '{asset.key}' failed SHA256 validation: {path} "
+                    f"(expected {asset.sha256}, got {digest})."
+                )
+        return path
+
+    hint = f" {asset.install_hint}" if asset.install_hint else ""
+    candidates = ", ".join(str(path) for path in asset.candidate_paths())
+    raise ModelAssetMissingError(
+        f"Missing asset '{asset.key}' for {asset.description}. "
+        f"Checked: {candidates}.{hint}"
+    )
+
+
+def compute_file_sha256(path: Path) -> str:
+    """Compute the SHA256 hash of a file."""
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_shared_insightface_detector_model(
+    ctx_id: int,
+    package_name: str = "buffalo_l",
+) -> "FaceDetector":
+    """Load the InsightFace face detector used for alignment (Protocol-typed)."""
+
+    insightface.utils.ensure_available("models", package_name, root="~/.insightface")
+    detector_path = get_detector_asset_path(package_name=package_name)
+    if not detector_path.exists():
+        raise ModelAssetMissingError(
+            f"InsightFace detector asset is missing after download attempt: {detector_path}."
+        )
+    detect_model = insightface.model_zoo.get_model(detector_path.as_posix())
+    det_size = (640, 640)
+    if detect_model is None:
+        raise ModelAssetMissingError(
+            f"InsightFace detector failed to load from: {detector_path}."
+        )
+    detector = cast(FaceDetector, detect_model)
+    detector.prepare(ctx_id=ctx_id, det_size=det_size, input_size=det_size)
+    return detector
+
+
+@lru_cache(maxsize=4)
+def get_shared_insightface_detector(
+    ctx_id: int,
+    package_name: str = "buffalo_l",
+) -> "FaceDetector":
+    """Return a process-wide singleton InsightFace detector for a given ctx_id."""
+
+    return load_shared_insightface_detector_model(ctx_id=ctx_id, package_name=package_name)
+
+
+@dataclass(frozen=True)
+class FaceDetection:
+    """A single detected face: bbox + 5-point landmarks."""
+
+    bbox: np.ndarray
+    landmarks: np.ndarray
+    score: float
+    image_hw: tuple[int, int]
+
+
+def detect_face_for_embed(
+    image: torch.Tensor,
+    detector: "FaceDetector",
+) -> "FaceDetection | None":
+    """Run InsightFace detection on a single HWC RGB [0,1] image tensor."""
+
+    img_arr = (image.detach().cpu().clamp(0.0, 1.0).numpy() * 255.0).astype(np.float32)
+    bboxes, kpss = detector.detect(img_arr, max_num=1)
+    if bboxes is None:
+        return None
+    bbox_arr = np.asarray(bboxes, dtype=np.float32)
+    if bbox_arr.size == 0:
+        return None
+    if kpss is None or len(kpss) == 0:
+        return None
+    box_row = bbox_arr[0]
+    score = float(box_row[4]) if box_row.shape[0] >= 5 else 1.0
+    return FaceDetection(
+        bbox=np.asarray(box_row[:4], dtype=np.float32),
+        landmarks=np.asarray(kpss[0], dtype=np.float32),
+        score=score,
+        image_hw=(int(image.shape[0]), int(image.shape[1])),
+    )
+
+
+def detect_faces_for_embed(
+    images: list[torch.Tensor],
+    detector: "FaceDetector",
+) -> list["FaceDetection | None"]:
+    """Batch version of `detect_face_for_embed` — one detection per image."""
+
+    return [detect_face_for_embed(image, detector) for image in images]

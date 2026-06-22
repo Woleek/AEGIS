@@ -1,6 +1,9 @@
 import argparse
 import json
 from aegis import AEGIS
+from aegis.models import list_verification_models
+
+_EMBEDDER_CHOICES = sorted(list_verification_models())
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,8 +43,8 @@ def parse_args() -> argparse.Namespace:
         "--embedder",
         type=str,
         default="adaface",
-        choices=["arcface", "adaface", "swinface", "transface"],
-        help="Face verification model to use. Choices are 'arcface', 'adaface', 'swinface', or 'transface'. Default is 'adaface'.",
+        choices=_EMBEDDER_CHOICES,
+        help=f"Face verification model to use. Choices: {', '.join(_EMBEDDER_CHOICES)}. Default is 'adaface'.",
     )
     parser.add_argument(
         "--select-regions",
@@ -131,6 +134,31 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Camera orbit radius. Use 1 for NeRSemble avatars, 20 for FaceScape. Default is 1.",
     )
+    parser.add_argument(
+        "--surrogate-keys",
+        type=str,
+        nargs="+",
+        default=None,
+        help=(
+            "Opt-in FR ensemble: space-separated surrogate model keys ('model' or "
+            "'model:variant', e.g. arcface:r50 facenet:vggface2 swinface:swin_t). "
+            "When omitted, single-model masking with --embedder is used."
+        ),
+    )
+    parser.add_argument(
+        "--cross-model-aggregation",
+        type=str,
+        default="mean",
+        choices=["mean", "max", "min", "median"],
+        help="How to aggregate per-model similarities in ensemble mode. Default is 'mean'.",
+    )
+    parser.add_argument(
+        "--model-weights",
+        type=float,
+        nargs="+",
+        default=None,
+        help="Optional per-surrogate weights (same count/order as --surrogate-keys).",
+    )
     args = parser.parse_args()
     return args
 
@@ -161,4 +189,7 @@ if __name__ == "__main__":
         adaptive_epsilon=args.adaptive_epsilon,
         region_multipliers=region_multipliers,
         radius=args.radius,
+        surrogate_keys=args.surrogate_keys,
+        cross_model_aggregation=args.cross_model_aggregation,
+        model_weights=args.model_weights,
     ).run()

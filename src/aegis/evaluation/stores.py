@@ -62,6 +62,17 @@ class VerificationThresholdResult:
     roc_auc: float
     cache_file: Path
     plot_path: Path
+    # Decision protocol used to derive `distance_threshold`/`score_threshold`.
+    # "tar_at_far" (the default protocol) or "eer"
+    protocol: str = "tar_at_far"
+    # Similarity-space decision threshold actually used by the chosen protocol.
+    score_threshold: float = 0.0
+    # TAR@FAR operating point (only meaningful when protocol == "tar_at_far").
+    target_far: float = 0.0
+    tar_at_far_threshold: float = 0.0
+    tar_at_far: float = 0.0
+    far_at_far: float = 0.0
+    frr_at_far: float = 0.0
 
 
 def load_embeddings(

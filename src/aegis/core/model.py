@@ -19,6 +19,11 @@ from ..splat import PipelineConfig, load_gaussians, render_single_frame
 from ..utils import load_image_from_file, seed_experiment
 from gaussian_renderer import FlameGaussianModel
 from .pipeline import FaceRenderVerification
+from .fr_ensemble import (
+    parse_model_key,
+    precompute_reference_embeddings,
+    validate_surrogate_keys,
+)
 from utils.viewer_utils import OrbitCamera
 import foolbox as fb
 import numpy as np
@@ -53,6 +58,9 @@ class AEGIS:
         adaptive_epsilon: bool = False,
         region_multipliers: Optional[dict[str, float]] = None,
         radius: float = 1,
+        surrogate_keys: Optional[List[str]] = None,
+        cross_model_aggregation: str = "mean",
+        model_weights: Optional[List[float]] = None,
     ):
         # Prepare experiment
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,18 +75,45 @@ class AEGIS:
 
         # Prepare verifier
         self.ver_threshold = ver_threshold
-        self.ver_model = get_verification_model(embedder_name, device=self.device)
+        # Ensemble (opt-in) settings. When surrogate_keys is None the original
+        # single-model path is used and behaves exactly as before.
+        self.surrogate_keys = surrogate_keys
+        self.cross_model_aggregation = cross_model_aggregation
+        self.model_weights = model_weights
+        self.ensemble = surrogate_keys is not None
+        self.ver_models: Optional[List] = None
+        self.ref_embs: Optional[List[torch.Tensor]] = None
+
+        if self.ensemble:
+            validate_surrogate_keys(surrogate_keys)
+            self.ver_models = []
+            for key in surrogate_keys:
+                name, variant = parse_model_key(key)
+                self.ver_models.append(
+                    get_verification_model(name, device=self.device, variant=variant)
+                )
+            # Keep self.ver_model pointing at the first surrogate for any code
+            # that still references it; the single-model path is not used.
+            self.ver_model = self.ver_models[0]
+        else:
+            self.ver_model = get_verification_model(embedder_name, device=self.device)
 
         # Prepare avatar
         self.targeted_features = targeted_features
         self.gaussians: FlameGaussianModel | None = None
-        self.ref_emb = self._get_reference_id_embedding(
-            image_path=(
-                target_image
-                if isinstance(target_image, str)
-                else target_image.as_posix()
-            )
+        target_image_path = (
+            target_image if isinstance(target_image, str) else target_image.as_posix()
         )
+        if self.ensemble:
+            ref_image = load_image_from_file(target_image_path)
+            ref_image = ref_image.permute(1, 2, 0).to(self.device)  # (H, W, C)
+            self.ref_embs = precompute_reference_embeddings(
+                self.ver_models, ref_image
+            )
+            # Keep self.ref_emb for parity (first surrogate's reference).
+            self.ref_emb = self.ref_embs[0]
+        else:
+            self.ref_emb = self._get_reference_id_embedding(image_path=target_image_path)
 
         # Prepare attack
         self.epsilons = epsilons
@@ -186,15 +221,28 @@ class AEGIS:
         return rgb
 
     def setup_foolbox_attack(self) -> tuple[fb.PyTorchModel, FaceRenderVerification]:
-        verifier_model = FaceRenderVerification(
-            embedder=self.ver_model,
-            reference_embedding=self.ref_emb,
-            ver_threshold=self.ver_threshold,
-            camera_boundary_angles=self.camera_angles,
-            aggregation_mode=self.angle_aggregation,
-            k=self.k_angles,
-            render_fn=self.render_frame_in_rgb,
-        )
+        if self.ensemble:
+            verifier_model = FaceRenderVerification(
+                embedders=self.ver_models,
+                reference_embeddings=self.ref_embs,
+                ver_threshold=self.ver_threshold,
+                camera_boundary_angles=self.camera_angles,
+                aggregation_mode=self.angle_aggregation,
+                k=self.k_angles,
+                render_fn=self.render_frame_in_rgb,
+                cross_model_aggregation=self.cross_model_aggregation,
+                model_weights=self.model_weights,
+            )
+        else:
+            verifier_model = FaceRenderVerification(
+                embedder=self.ver_model,
+                reference_embedding=self.ref_emb,
+                ver_threshold=self.ver_threshold,
+                camera_boundary_angles=self.camera_angles,
+                aggregation_mode=self.angle_aggregation,
+                k=self.k_angles,
+                render_fn=self.render_frame_in_rgb,
+            )
         verifier_model.eval()
         verifier_model.to(self.device)
 
