@@ -5,7 +5,7 @@
 ### Setup
 1. Run `uv sync`
 1. Open new terminal with `aegis` environment
-1. Run `uv pip install -e .`
+1. Run `uv pip install -e . --no-build-isolation`
 1. Download Gaussian Avatars repo using `git clone https://github.com/Woleek/GaussianAvatars.git --recursive`
 1. Run `bash scripts/download_models.sh` and `bash scripts/download_datasets.sh`
 1. Go to `./GaussianAvatars/chumpy` and run `uv pip install .`

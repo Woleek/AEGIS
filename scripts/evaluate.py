@@ -23,6 +23,8 @@ from aegis.evaluation.stores import (
 from aegis.models import (
     AdaFaceEmbedder,
     ArcFaceEmbedder,
+    CosFaceEmbedder,
+    FaceNetEmbedder,
     SwinFaceEmbedder,
     TransFaceEmbedder,
     resolve_compute_device,
@@ -140,7 +142,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     parser.add_argument(
         "--embedder",
-        choices=["arcface", "adaface", "swinface", "transface"],
+        choices=["arcface", "adaface", "swinface", "transface", "facenet", "cosface"],
         default="arcface",
     )
     parser.add_argument(
@@ -183,6 +185,55 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Root directory where evaluation artefacts are written",
     )
     return parser
+
+
+def _load_inception_model(device: torch.device):
+    from torchvision.models import inception_v3, Inception_V3_Weights
+
+    model = inception_v3(weights=Inception_V3_Weights.DEFAULT)
+    model.fc = torch.nn.Identity()  # type: ignore[assignment]
+    model.eval().to(device)
+    return model
+
+
+def _extract_inception_features(
+    images: Dict[str, np.ndarray],
+    model,
+    device: torch.device,
+    batch_size: int,
+) -> np.ndarray:
+    import cv2 as _cv2
+    from torchvision.transforms.functional import resize
+
+    all_feats: List[np.ndarray] = []
+    imgs = list(images.values())
+    for i in range(0, len(imgs), batch_size):
+        tensors = []
+        for bgr in imgs[i : i + batch_size]:
+            rgb = _cv2.cvtColor(bgr, _cv2.COLOR_BGR2RGB)
+            t = torch.from_numpy(rgb).permute(2, 0, 1).float() / 255.0
+            t = resize(t, [299, 299], antialias=True)
+            t = (t - 0.5) / 0.5
+            tensors.append(t)
+        batch = torch.stack(tensors).to(device)
+        with torch.no_grad():
+            feats = model(batch)
+        all_feats.append(feats.cpu().numpy())
+    return np.concatenate(all_feats, axis=0)
+
+
+def _fid_from_features(real_feats: np.ndarray, anon_feats: np.ndarray) -> float:
+    from scipy.linalg import sqrtm
+
+    eps = 1e-6
+    mu_r, mu_a = real_feats.mean(0), anon_feats.mean(0)
+    sigma_r = np.cov(real_feats, rowvar=False) + eps * np.eye(real_feats.shape[1])
+    sigma_a = np.cov(anon_feats, rowvar=False) + eps * np.eye(anon_feats.shape[1])
+    diff = mu_r - mu_a
+    covmean: np.ndarray = sqrtm(sigma_r @ sigma_a)  # type: ignore[assignment]
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real  # type: ignore[assignment]
+    return float(diff @ diff + np.trace(sigma_r + sigma_a - 2.0 * covmean))
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
@@ -310,6 +361,18 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             device=device,
             batch_size=args.batch_size,
         )
+    elif args.embedder == "facenet":
+        cache_suffix = "facenet"
+        embedder = FaceNetEmbedder(
+            device=device,
+            batch_size=args.batch_size,
+        )
+    elif args.embedder == "cosface":
+        cache_suffix = "cosface"
+        embedder = CosFaceEmbedder(
+            device=device,
+            batch_size=args.batch_size,
+        )
     else:  # pragma: no cover - defensive programming
         raise ValueError(f"Unsupported embedder {args.embedder}")
 
@@ -414,6 +477,37 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         ensure_csv_parent(out_path)
         df.to_csv(out_path, index=False)
         report_utility(df)
+
+        # FID: compare three pairs to separate reconstruction error from masking error
+        _GT_COUNTERPART = {
+            "CombinedReconst": "CombinedGT",
+            "NeRSembleReconst": "NeRSembleGT",
+            "FaceScapeReconst": "FaceScapeGT",
+        }
+        gt_dataset_name = _GT_COUNTERPART.get(anonymized_dataset_name)
+        gt_images: Optional[Dict[str, np.ndarray]] = None
+        if gt_dataset_name is not None:
+            try:
+                gt_spec = resolve_dataset(gt_dataset_name)  # type: ignore[arg-type]
+                gt_dataset = FaceDataset(gt_spec.images_root, gt_spec.file_extension)
+                gt_images, _ = load_image_map(
+                    [str(p.relative_to(gt_spec.images_root)) for p in gt_dataset.paths],
+                    gt_spec.images_root,
+                    key_prefix=gt_spec.name,
+                )
+            except (FileNotFoundError, RuntimeError):
+                print(f"[FID] GT dataset '{gt_dataset_name}' not found, skipping GT-based FID.")
+
+        inception = _load_inception_model(device)
+        unmasked_feats = _extract_inception_features(real_images, inception, device, args.batch_size)
+        masked_feats = _extract_inception_features(anon_images, inception, device, args.batch_size)
+
+        print("================ FID Results ================")
+        if gt_images:
+            gt_feats = _extract_inception_features(gt_images, inception, device, args.batch_size)
+            print(f"FID (GT vs unmasked): {_fid_from_features(gt_feats, unmasked_feats):.4f}")
+            print(f"FID (GT vs masked):   {_fid_from_features(gt_feats, masked_feats):.4f}")
+        print(f"FID (unmasked vs masked): {_fid_from_features(unmasked_feats, masked_feats):.4f}")
         return
 
     if args.evaluation_method == "verification":
@@ -588,6 +682,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 # take max similarity and its idx
                 max_sim_idx = torch.argmax(similarity).item()
                 max_similarity = similarity[max_sim_idx].item()
+                min_similarity = similarity.min().item()
                 pred = 1 if max_similarity >= threshold else 0
 
                 rows.append(
@@ -596,6 +691,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                         "emb_idx": anon_emb_idx,
                         "match": True if pred == 1 else False,
                         "max_similarity": max_similarity,
+                        "min_similarity": min_similarity,
                     }
                 )
 
@@ -655,7 +751,8 @@ def report_utility(df: pd.DataFrame) -> None:
             if metric == "age_diff":
                 print(f"Average Age Difference: {value:.2f} years")
             elif metric in ["ssim", "psnr"]:
-                print(f"Average {metric.upper()}: {value:.4f}")
+                std = df[metric].std()
+                print(f"Average {metric.upper()}: {value:.4f} ± {std:.4f}")
             else:
                 print(f"Average {metric.replace('_', ' ').title()}: {value:.2%}")
 

@@ -125,6 +125,12 @@ def parse_args() -> argparse.Namespace:
             "If not provided, uses default multipliers."
         ),
     )
+    parser.add_argument(
+        "--radius",
+        type=float,
+        default=1,
+        help="Camera orbit radius. Use 1 for NeRSemble avatars, 20 for FaceScape. Default is 1.",
+    )
     args = parser.parse_args()
     return args
 
@@ -154,4 +160,5 @@ if __name__ == "__main__":
         output_name=args.output_name,
         adaptive_epsilon=args.adaptive_epsilon,
         region_multipliers=region_multipliers,
+        radius=args.radius,
     ).run()
