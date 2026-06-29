@@ -10,6 +10,18 @@ from typing import Any, Dict, Iterator, Literal, Protocol, Sequence, Tuple, cast
 
 import torch.nn.functional as F
 
+# Load the CUDA/cuDNN shared libraries bundled with torch's nvidia-* wheels so
+# the onnxruntime-gpu CUDAExecutionProvider can initialise without a system CUDA
+# install or a manually-set LD_LIBRARY_PATH. Must run before any InsightFace
+# InferenceSession is created
+try:  # pragma: no cover - environment dependent
+    import onnxruntime as _ort
+
+    if hasattr(_ort, "preload_dlls"):
+        _ort.preload_dlls()
+except Exception:
+    pass
+
 
 def resolve_compute_device(requested: Literal["cpu", "cuda"]) -> Literal["cpu", "cuda"]:
     """Return a usable device string, falling back to CPU when CUDA is unavailable."""

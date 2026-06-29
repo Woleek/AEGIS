@@ -39,6 +39,12 @@ FACEXLIB_AVAILABLE = True
 DIFFUSERS_AVAILABLE = True
 REALESRGAN_AVAILABLE = True
 
+import types as _types
+import torchvision.transforms.functional as _tv_functional
+_ft = _types.ModuleType("torchvision.transforms.functional_tensor")
+_ft.rgb_to_grayscale = _tv_functional.rgb_to_grayscale
+sys.modules.setdefault("torchvision.transforms.functional_tensor", _ft)
+
 from gfpgan import GFPGANer
 
 from basicsr.archs.rrdbnet_arch import RRDBNet

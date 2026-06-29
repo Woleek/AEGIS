@@ -30,7 +30,6 @@ import numpy as np
 import torch
 from PIL import Image
 import shutil
-from copy import deepcopy
 from pathlib import Path
 from typing import List, Optional, Tuple
 from tqdm import tqdm
@@ -61,6 +60,8 @@ class AEGIS:
         surrogate_keys: Optional[List[str]] = None,
         cross_model_aggregation: str = "mean",
         model_weights: Optional[List[float]] = None,
+        checkpoint_steps: Optional[List[int]] = None,
+        eval_viewpoints: Optional[List[Tuple[float, float, float]]] = None,
     ):
         # Prepare experiment
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -119,6 +120,13 @@ class AEGIS:
         self.epsilons = epsilons
         self.adv_attack = adv_attack
         self.attack_steps = attack_steps
+        # Optional step checkpointing.
+        self.checkpoint_steps = (
+            sorted({int(s) for s in checkpoint_steps}) if checkpoint_steps else None
+        )
+        # Optional extra eval viewpoints (orbit_x, orbit_y, orbit_z) rendered per
+        # checkpoint so masking can be scored across views, not just frontally.
+        self.eval_viewpoints = eval_viewpoints
         self.mask: torch.Tensor | None = None
         self.selected_regions = selected_regions
         self.att_tensor = self._prepare_tensor_for_attack(avatar_dir)
@@ -128,9 +136,17 @@ class AEGIS:
         self.adaptive_epsilon = adaptive_epsilon
         self.region_multipliers = region_multipliers
 
+        if self.checkpoint_steps and not self.adaptive_epsilon:
+            raise ValueError(
+                "checkpoint_steps is currently only supported with adaptive_epsilon=True."
+            )
+
         # Output settings
         self.avatar_dir = avatar_dir
-        self.output_base_name = f"{output_name}_{embedder_name}_"
+        # In ensemble mode the single `embedder_name` is not the surrogate that
+        # masking optimizes against, so tag the run as an ensemble instead.
+        tag = "ensemble" if self.ensemble else embedder_name
+        self.output_base_name = f"{output_name}_{tag}_"
 
     def _get_reference_id_embedding(self, image_path: str) -> torch.Tensor:
         ref_image = load_image_from_file(
@@ -191,8 +207,6 @@ class AEGIS:
         if self.gaussians is None or self.mask is None:
             raise RuntimeError("Gaussians and mask must be prepared before rendering.")
 
-        gaussians = deepcopy(self.gaussians)
-
         if orbit_cam is not None:
             orbit_x, orbit_y, orbit_z = orbit_cam
             if orbit_x != 0:
@@ -202,12 +216,17 @@ class AEGIS:
             if orbit_z != 0:
                 self.root_cam.orbit_z(orbit_z)
 
-        features = get_targeted_features(gaussians, self.targeted_features).clone()
+        original_features = get_targeted_features(self.gaussians, self.targeted_features)
+        features = original_features.clone()
         new_features = new_features.to(features.device)
         features[self.mask] = new_features
-        set_targeted_features(gaussians, self.targeted_features, features)
-
-        rgb = render_single_frame(gaussians, self.root_cam, self.pipeline)
+        set_targeted_features(self.gaussians, self.targeted_features, features)
+        try:
+            rgb = render_single_frame(self.gaussians, self.root_cam, self.pipeline)
+        finally:
+            set_targeted_features(
+                self.gaussians, self.targeted_features, original_features
+            )
 
         if orbit_cam is not None:
             orbit_x, orbit_y, orbit_z = orbit_cam
@@ -252,12 +271,17 @@ class AEGIS:
         )
         return foolbox_model, verifier_model
 
-    def save_results(self, adv_features: torch.Tensor) -> None:
+    def save_results(
+        self,
+        adv_features: torch.Tensor,
+        step: Optional[int] = None,
+        save_ply: bool = True,
+    ) -> None:
         if self.selected_regions:
             regions_str = "_".join(sorted(self.selected_regions))
-            self.output_base_name += regions_str
         else:
-            self.output_base_name += "all"
+            regions_str = "all"
+        base_name = f"{self.output_base_name}{regions_str}"
 
         avatar_id = (
             Path(self.avatar_dir).name
@@ -265,35 +289,47 @@ class AEGIS:
             else self.avatar_dir.name
         )
 
-        output_name = DATASETS_DIR / f"seed{self.seed}" / self.output_base_name
-        ensure_output_structure(output_name, self.epsilons, avatar_id)
+        output_name = DATASETS_DIR / f"seed{self.seed}" / base_name
 
         for eps, features in zip(self.epsilons, adv_features):
+            # Per-eps directory, optionally nested under a per-step subfolder.
+            eps_dir = output_name / f"eps_{eps:.3f}"
+            if step is not None:
+                eps_dir = eps_dir / f"step_{step:03d}"
+            (eps_dir / "renders").mkdir(parents=True, exist_ok=True)
+
             with torch.no_grad():
                 adv_rgb = self.render_frame_in_rgb(features)
 
-            render_path = (
-                output_name / f"eps_{eps:.3f}" / "renders" / f"{avatar_id}.png"
-            )
+            render_path = eps_dir / "renders" / f"{avatar_id}.png"
             adv_img_np = (np.clip(adv_rgb.cpu().detach().numpy(), 0, 1) * 255).astype(
                 np.uint8
             )
             Image.fromarray(adv_img_np).save(render_path)
 
-            if self.targeted_features == "DC":
+            # Multi-view renders: score masking across viewpoints
+            if self.eval_viewpoints:
+                mv_dir = eps_dir / "renders_mv" / avatar_id
+                mv_dir.mkdir(parents=True, exist_ok=True)
+                for vid, orbit in enumerate(self.eval_viewpoints):
+                    with torch.no_grad():
+                        view_rgb = self.render_frame_in_rgb(features, orbit_cam=orbit)
+                    view_np = (
+                        np.clip(view_rgb.cpu().detach().numpy(), 0, 1) * 255
+                    ).astype(np.uint8)
+                    ox, oy, oz = orbit
+                    fname = f"v{vid:03d}_x{ox:+.3f}_y{oy:+.3f}_z{oz:+.3f}.png"
+                    Image.fromarray(view_np).save(mv_dir / fname)
+
+            if save_ply and self.targeted_features == "DC":
                 if self.gaussians is None or self.mask is None:
                     raise RuntimeError(
                         "Gaussians and mask must be available to save PLY."
                     )
                 orig_ply_path = Path(self.avatar_dir) / "point_cloud.ply"
                 orig_flame_path = Path(self.avatar_dir) / "flame_param.npz"
-                ply_output_path = (
-                    output_name
-                    / f"eps_{eps:.3f}"
-                    / "avatars"
-                    / avatar_id
-                    / "point_cloud.ply"
-                )
+                ply_output_path = eps_dir / "avatars" / avatar_id / "point_cloud.ply"
+                ply_output_path.parent.mkdir(parents=True, exist_ok=True)
                 new_features = get_targeted_features(
                     self.gaussians, self.targeted_features
                 ).clone()
@@ -320,15 +356,25 @@ class AEGIS:
         original_class = torch.tensor([0], device=self.device)
         target_class = torch.tensor([1], device=self.device)
 
-        if self.adaptive_epsilon:
-            # Use custom PGD with per-element epsilon
-            clipped_adv = self._run_adaptive_epsilon_attack(target_class)
+        if self.adaptive_epsilon and self.checkpoint_steps:
+            # per-step checkpointing: save one render set per step.
+            step_to_adv = self._run_adaptive_epsilon_attack(target_class)
+            max_step = max(self.checkpoint_steps)
+            for step in self.checkpoint_steps:
+                # Only persist the PLY/FLAME files at the final step.
+                self.save_results(
+                    step_to_adv[step], step=step, save_ply=(step == max_step)
+                )
+            clipped_adv = step_to_adv[max_step]
         else:
-            # Use standard Foolbox attack
-            clipped_adv = self._run_foolbox_attack(target_class)
+            if self.adaptive_epsilon:
+                # Use custom PGD with per-element epsilon
+                clipped_adv = self._run_adaptive_epsilon_attack(target_class)
+            else:
+                # Use standard Foolbox attack
+                clipped_adv = self._run_foolbox_attack(target_class)
 
-        # print("Masking completed.")
-        self.save_results(clipped_adv)
+            self.save_results(clipped_adv)
 
         for eps, adv_features in zip(self.epsilons, clipped_adv):
             with torch.no_grad():
@@ -375,14 +421,22 @@ class AEGIS:
 
         return clipped_adv
 
-    def _run_adaptive_epsilon_attack(
-        self, target_class: torch.Tensor
-    ) -> List[torch.Tensor]:
-        """Run custom PGD attack with per-Gaussian adaptive epsilon."""
+    def _run_adaptive_epsilon_attack(self, target_class: torch.Tensor):
+        """Run custom PGD attack with per-Gaussian adaptive epsilon.
+
+        Returns a ``list`` of adversarial tensors (one per epsilon) by default.
+        When ``self.checkpoint_steps`` is set, returns a ``{step: [per-eps
+        tensors]}`` dict so each checkpoint can be saved separately.
+        """
         if self.gaussians is None:
             raise RuntimeError("Gaussians must be loaded before running attack.")
 
-        clipped_adv = []
+        clipped_adv: List[torch.Tensor] = []
+        step_to_adv: dict[int, List[torch.Tensor]] = (
+            {step: [] for step in self.checkpoint_steps}
+            if self.checkpoint_steps
+            else {}
+        )
         for base_eps in tqdm(self.epsilons, desc="Processing epsilons", unit="eps"):
             # Create per-Gaussian epsilon mask
             full_eps = create_adaptive_epsilon_mask(
@@ -402,7 +456,12 @@ class AEGIS:
                 target_class=target_class,
                 steps=self.attack_steps,
                 random_start=False,
+                checkpoint_steps=self.checkpoint_steps,
             )
-            clipped_adv.append(adv_features)
+            if self.checkpoint_steps:
+                for step in self.checkpoint_steps:
+                    step_to_adv[step].append(adv_features[step])
+            else:
+                clipped_adv.append(adv_features)
 
-        return clipped_adv
+        return step_to_adv if self.checkpoint_steps else clipped_adv

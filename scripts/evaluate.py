@@ -449,6 +449,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             anon_images=anon_images,
             anon_paths=anon_paths,
             device=str(device),
+            fid_batch_size=args.batch_size,
         )
         df = evaluator.run()
         if args.label:

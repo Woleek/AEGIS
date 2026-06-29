@@ -1,4 +1,5 @@
 from ..models import AdaFace, ArcFace
+from ..models.base import FaceNotDetectedError, detect_faces_for_embed
 import numpy as np
 import torch
 from PIL import Image
@@ -140,32 +141,58 @@ class FaceRenderVerification(torch.nn.Module):
                 sample_angles.append((orbit_x, orbit_y, orbit_z))
         return sample_angles
 
+    def _render_views(
+        self, features: torch.Tensor, sample_angles: list[Tuple[float, float, float]]
+    ) -> tuple[list[torch.Tensor], "list"]:
+        """Render every sampled view once and detect each face a single time.
+
+        Returns the list of rendered (H, W, C) tensors (gradient-carrying) and the matching list of `FaceDetection | None`.
+        """
+        rendered = [
+            self.render_fn(features, orbit_cam=orbit) for orbit in sample_angles
+        ]
+        base_model = self.models[0] if self.ensemble else self.model
+        detector = getattr(base_model, "detect_model", None)
+        if detector is not None:
+            detections = detect_faces_for_embed(rendered, detector)
+        else:
+            detections = [None] * len(rendered)
+        return rendered, detections
+
+    def _model_view_similarity(
+        self,
+        model,
+        ref_emb: torch.Tensor,
+        rendered: list[torch.Tensor],
+        detections: "list",
+    ) -> torch.Tensor:
+        """One batched recognition forward over all views, then view aggregation.
+
+        Views whose face could not be detected/aligned are skipped. Gradients flow from each embedding back to the rendered images and thus to `features`.
+        """
+        embeddings = model.embed_batch(rendered, detections=detections)
+        per_view: list[torch.Tensor] = []
+        for emb in embeddings:
+            if emb is None:
+                continue
+            sim = torch.cosine_similarity(emb, ref_emb.expand_as(emb), dim=1)
+            per_view.append(sim.squeeze(0))
+        if not per_view:
+            raise FaceNotDetectedError(
+                "No face detected/aligned in any sampled view for a surrogate model."
+            )
+        view_sim_tensor = torch.stack(per_view, dim=0)
+        return self._aggregate_similarities(view_sim_tensor)
+
     def _compute_aggregated_similarity(self, features: torch.Tensor) -> torch.Tensor:
         if self.ensemble:
             return self._compute_ensemble_similarity(features)
 
-        per_view_similarities: list[torch.Tensor] = []
         sample_angles = self._sample_angles()
-        for orbit in sample_angles:
-            att_rgb = self.render_fn(features, orbit_cam=orbit)
-            try:
-                att_emb = self.model(att_rgb)
-            except:
-                Image.fromarray(
-                    (att_rgb.detach().cpu().numpy() * 255).astype(np.uint8)
-                ).save("error_input.png")
-                input("Check input image for cam {}...".format(orbit))
-            similarity = torch.cosine_similarity(
-                att_emb,
-                self.ref_emb.expand_as(att_emb),
-                dim=1,
-            )
-            per_view_similarities.append(similarity.squeeze(0))
-
-        view_sim_tensor = torch.stack(per_view_similarities, dim=0)
-        aggregated_similarity = self._aggregate_similarities(view_sim_tensor).unsqueeze(
-            0
-        )
+        rendered, detections = self._render_views(features, sample_angles)
+        aggregated_similarity = self._model_view_similarity(
+            self.model, self.ref_emb, rendered, detections
+        ).unsqueeze(0)
         return aggregated_similarity
 
     def _compute_ensemble_similarity(self, features: torch.Tensor) -> torch.Tensor:
@@ -173,32 +200,22 @@ class FaceRenderVerification(torch.nn.Module):
         model (existing aggregation), then aggregated across models into a scalar.
 
         Each rendered view is shared across all surrogate models so the renderer
-        runs once per view (gradients still flow to `features` through every
-        model). The final scalar goes through `_similarity_to_logits` unchanged.
+        runs once per view, the face is detected once per view, and each model
+        does a single batched recognition forward over the views. Gradients
+        still flow to `features` through every model. The final scalar goes
+        through `_similarity_to_logits` unchanged.
         """
         sample_angles = self._sample_angles()
-        # per_model_view_sims[i] -> list of per-view scalar similarities for model i
-        per_model_view_sims: list[list[torch.Tensor]] = [
-            [] for _ in range(self._n_models)
-        ]
-        for orbit in sample_angles:
-            att_rgb = self.render_fn(features, orbit_cam=orbit)
-            for i in range(self._n_models):
-                model = self.models[i]
-                ref_emb = getattr(self, f"ref_emb_{i}")
-                att_emb = model(att_rgb)
-                similarity = torch.cosine_similarity(
-                    att_emb,
-                    ref_emb.expand_as(att_emb),
-                    dim=1,
-                )
-                per_model_view_sims[i].append(similarity.squeeze(0))
+        rendered, detections = self._render_views(features, sample_angles)
 
-        # Aggregate over views per model, using the existing view aggregation.
         per_model_sim: list[torch.Tensor] = []
         for i in range(self._n_models):
-            view_sim_tensor = torch.stack(per_model_view_sims[i], dim=0)
-            per_model_sim.append(self._aggregate_similarities(view_sim_tensor))
+            ref_emb = getattr(self, f"ref_emb_{i}")
+            per_model_sim.append(
+                self._model_view_similarity(
+                    self.models[i], ref_emb, rendered, detections
+                )
+            )
 
         model_sim_tensor = torch.stack(per_model_sim, dim=0)  # (n_models,)
         aggregated = self._aggregate_across_models(model_sim_tensor).unsqueeze(0)

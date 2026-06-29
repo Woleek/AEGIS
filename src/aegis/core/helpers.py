@@ -199,7 +199,8 @@ def adaptive_linf_pgd_attack(
     steps: int = 300,
     step_size: Optional[float] = None,
     random_start: bool = False,
-) -> torch.Tensor:
+    checkpoint_steps: Optional[list[int]] = None,
+) -> "torch.Tensor | dict[int, torch.Tensor]":
     """
     L-infinity PGD attack with per-element epsilon bounds.
 
@@ -214,9 +215,11 @@ def adaptive_linf_pgd_attack(
         steps: Number of PGD steps
         step_size: Step size per iteration (default: 2.5 * eps / steps)
         random_start: Whether to start from random perturbation
+        checkpoint_steps: Optional 1-indexed step counts at which to snapshot the adversarial tensor.
 
     Returns:
-        Adversarial tensor with same shape as inputs
+        Adversarial tensor with same shape as inputs, or a ``{step: tensor}``
+        dict when ``checkpoint_steps`` is provided.
     """
     device = inputs.device
     inputs = inputs.detach()
@@ -242,7 +245,16 @@ def adaptive_linf_pgd_attack(
 
     delta.requires_grad_(True)
 
-    for _ in tqdm(range(steps), desc="PGD Attack Steps", leave=False):
+    # Normalize requested checkpoint steps (1-indexed, clamped to [1, steps]).
+    wanted_steps: set[int] = set()
+    if checkpoint_steps:
+        wanted_steps = {min(max(int(s), 1), steps) for s in checkpoint_steps}
+    snapshots: dict[int, torch.Tensor] = {}
+
+    def _restore_shape(t: torch.Tensor) -> torch.Tensor:
+        return t.unsqueeze(1) if len(original_shape) == 3 else t
+
+    for step_idx in tqdm(range(steps), desc="PGD Attack Steps", leave=False):
         if delta.grad is not None:
             delta.grad.zero_()
 
@@ -273,11 +285,18 @@ def adaptive_linf_pgd_attack(
 
         delta = delta_new.clone().detach().requires_grad_(True)
 
-    result = inputs + delta.detach()
+        current_step = step_idx + 1
+        if current_step in wanted_steps:
+            snapshots[current_step] = _restore_shape(
+                (inputs + delta.detach()).clone()
+            )
 
-    # Restore original shape
-    if len(original_shape) == 3:
-        result = result.unsqueeze(1)
+    result = _restore_shape(inputs + delta.detach())
+
+    if checkpoint_steps:
+        # Guarantee the final step is always available.
+        snapshots[steps] = result
+        return snapshots
 
     return result
 

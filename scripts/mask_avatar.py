@@ -159,6 +159,26 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional per-surrogate weights (same count/order as --surrogate-keys).",
     )
+    parser.add_argument(
+        "--checkpoint-steps",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Step counts at which to also save intermediate masked results "
+            "(e.g. 50 100 150 200 250 300). Only valid with --adaptive-epsilon currently."
+        ),
+    )
+    parser.add_argument(
+        "--eval-view-grid",
+        type=int,
+        default=None,
+        help=(
+            "If set, render a K x K grid of extra eval viewpoints per saved "
+            "checkpoint (spanning --camera-boundary-angles in orbit_x/orbit_y, "
+            "z fixed at its midpoint) into renders_mv/. Frontal render is always saved separately."
+        ),
+    )
     args = parser.parse_args()
     return args
 
@@ -170,6 +190,27 @@ if __name__ == "__main__":
     region_multipliers = None
     if args.region_multipliers:
         region_multipliers = json.loads(args.region_multipliers)
+
+    # Build the K x K eval viewpoint grid (orbit_x, orbit_y) over the camera
+    # boundary angles, z fixed at its midpoint.
+    eval_viewpoints = None
+    if args.eval_view_grid and args.eval_view_grid > 0:
+        if not args.camera_boundary_angles or len(args.camera_boundary_angles) < 6:
+            parser_error = (
+                "--eval-view-grid requires --camera-boundary-angles with 6 values "
+                "(x_min x_max y_min y_max z_min z_max)."
+            )
+            raise SystemExit(parser_error)
+        import numpy as np
+
+        x_min, x_max, y_min, y_max, z_min, z_max = args.camera_boundary_angles[:6]
+        k = args.eval_view_grid
+        xs = np.linspace(x_min, x_max, k)
+        ys = np.linspace(y_min, y_max, k)
+        z_mid = (z_min + z_max) / 2.0
+        eval_viewpoints = [
+            (float(ox), float(oy), float(z_mid)) for ox in xs for oy in ys
+        ]
 
     AEGIS(
         embedder_name=args.embedder,
@@ -192,4 +233,6 @@ if __name__ == "__main__":
         surrogate_keys=args.surrogate_keys,
         cross_model_aggregation=args.cross_model_aggregation,
         model_weights=args.model_weights,
+        checkpoint_steps=args.checkpoint_steps,
+        eval_viewpoints=eval_viewpoints,
     ).run()

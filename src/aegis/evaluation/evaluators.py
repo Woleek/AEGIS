@@ -202,6 +202,7 @@ class UtilityEvaluator:
         anon_images: Dict[str, np.ndarray],
         anon_paths: List[Path],
         device: Optional[str] = None,
+        fid_batch_size: int = 8,
     ) -> None:
         self.detection_model = load_insightface_detector(ctx_id=0)
         self.identity_lookup = identity_lookup
@@ -210,6 +211,7 @@ class UtilityEvaluator:
         self.real_paths = real_paths
         self.anon_paths = anon_paths
         self.device = device
+        self.fid_batch_size = max(1, int(fid_batch_size))
 
         shared_keys = set(real_images.keys()) & set(anon_images.keys())
         missing_in_anon = set(real_images.keys()) - shared_keys
@@ -398,10 +400,18 @@ class UtilityEvaluator:
             )
 
         device = self.device or "cpu"
+        bs = self.fid_batch_size
         try:
+            import torch
+
             fid = self._build_fid_metric().to(device)
-            fid.update(real_batch.to(device), real=True)
-            fid.update(anon_batch.to(device), real=False)
+            for batch, is_real in ((real_batch, True), (anon_batch, False)):
+                for i in range(0, batch.shape[0], bs):
+                    chunk = batch[i : i + bs].to(device)
+                    fid.update(chunk, real=is_real)
+                    del chunk
+                    if device != "cpu":
+                        torch.cuda.empty_cache()
             value = float(fid.compute().item())
         except Exception as exc:  # noqa: BLE001
             print(
@@ -421,6 +431,12 @@ class UtilityEvaluator:
 
             real_rgb = cv2.cvtColor(real_img, cv2.COLOR_BGR2RGB)
             anon_rgb = cv2.cvtColor(anon_img, cv2.COLOR_BGR2RGB)
+
+            if anon_rgb.shape[:2] != real_rgb.shape[:2]:
+                anon_rgb = cv2.resize(
+                    anon_rgb, (real_rgb.shape[1], real_rgb.shape[0]),
+                    interpolation=cv2.INTER_CUBIC,
+                )
 
             bboxes, _ = self.detection_model.detect(real_rgb, max_num=1)
 
@@ -444,6 +460,12 @@ class UtilityEvaluator:
 
             real_rgb = cv2.cvtColor(real_img, cv2.COLOR_BGR2RGB)
             anon_rgb = cv2.cvtColor(anon_img, cv2.COLOR_BGR2RGB)
+
+            if anon_rgb.shape[:2] != real_rgb.shape[:2]:
+                anon_rgb = cv2.resize(
+                    anon_rgb, (real_rgb.shape[1], real_rgb.shape[0]),
+                    interpolation=cv2.INTER_CUBIC,
+                )
 
             bboxes, _ = self.detection_model.detect(real_rgb, max_num=1)
 
