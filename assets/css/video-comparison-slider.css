@@ -9,8 +9,22 @@
     padding-bottom: 8px;
 }
 
-#variant-selector {
-    margin-bottom: 16px;
+.selector-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.selector-label {
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.selector-row .tabs {
+    margin-bottom: 0;
 }
 
 /* BEFORE video = full width (base layer) */

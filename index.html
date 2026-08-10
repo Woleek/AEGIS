@@ -188,21 +188,39 @@
                 using AEGIS, optimized against an ensemble of face verification networks and shown
                 across various rotation angles and pose variations</p>
 
-            <div class="tabs is-toggle is-toggle-rounded is-small is-centered" id="variant-selector">
+            <div class="selector-row">
+                <span class="selector-label">Subject:</span>
+                <div class="tabs is-toggle is-toggle-rounded is-small is-centered" id="subject-selector">
+                    <ul>
+                        <li data-subject="104"><a>104</a></li>
+                        <li data-subject="253"><a>253</a></li>
+                        <li data-subject="272"><a>272</a></li>
+                        <li data-subject="290"><a>290</a></li>
+                        <li data-subject="293"><a>293</a></li>
+                        <li data-subject="302"><a>302</a></li>
+                        <li class="is-active" data-subject="306"><a>306</a></li>
+                        <li data-subject="380"><a>380</a></li>
+                        <li data-subject="385"><a>385</a></li>
+                        <li data-subject="395"><a>395</a></li>
+                        <li data-subject="443"><a>443</a></li>
+                        <li data-subject="475"><a>475</a></li>
+                        <li data-subject="495"><a>495</a></li>
+                        <li data-subject="497"><a>497</a></li>
+                        <li data-subject="498"><a>498</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="selector-row">
+                <span class="selector-label">Method:</span>
+                <div class="tabs is-toggle is-toggle-rounded is-small is-centered" id="variant-selector">
                 <ul>
-                    <li data-src="./assets/comp/masked_video_sim_eps0.100.mp4">
-                        <a>AEGIS ε = 0.1</a>
-                    </li>
-                    <li data-src="./assets/comp/masked_video_sim_eps0.200.mp4">
-                        <a>AEGIS ε = 0.2</a>
-                    </li>
-                    <li data-src="./assets/comp/masked_video_sim_eps0.300.mp4">
-                        <a>AEGIS ε = 0.3</a>
-                    </li>
-                    <li class="is-active" data-src="./assets/comp/masked_video_sim_ra_eps0.200.mp4">
-                        <a>AEGIS RA ε = 0.2</a>
-                    </li>
+                    <li data-variant="eps0.100"><a>AEGIS ε = 0.1</a></li>
+                    <li data-variant="eps0.200"><a>AEGIS ε = 0.2</a></li>
+                    <li data-variant="eps0.300"><a>AEGIS ε = 0.3</a></li>
+                    <li class="is-active" data-variant="ra_eps0.200"><a>AEGIS RA ε = 0.2</a></li>
                 </ul>
+                </div>
             </div>
 
             <section class="hero is-light is-small">
@@ -213,17 +231,17 @@
                         <!-- The Video Slider Component -->
                         <div class="video-comparison-slider" id="video-slider">
 
-                            <!-- Before on the LEFT: unmasked reference (fixed) -->
+                            <!-- Before on the LEFT: unmasked reference (fixed per subject) -->
                             <div class="video-before">
                                 <video muted playsinline preload="auto">
-                                    <source src="./assets/comp/original_video_sim.mp4" type="video/mp4">
+                                    <source src="./assets/comp/306/original.mp4" type="video/mp4">
                                 </video>
                             </div>
 
-                            <!-- After on the RIGHT: selected masked variant (swappable) -->
+                            <!-- After on the RIGHT: selected subject + masked variant (swappable) -->
                             <div class="video-after" id="video-after-wrapper">
                                 <video muted playsinline preload="auto">
-                                    <source src="./assets/comp/masked_video_sim_ra_eps0.200.mp4" type="video/mp4">
+                                    <source src="./assets/comp/306/masked_ra_eps0.200.mp4" type="video/mp4">
                                 </video>
                             </div>
 
@@ -310,13 +328,47 @@
                 document.addEventListener('DOMContentLoaded', () => {
                     const slider = initVideoSlider();
 
-                    const selector = document.getElementById('variant-selector');
-                    if (selector) {
-                        selector.querySelectorAll('li[data-src]').forEach((li) => {
+                    const subjectSelector = document.getElementById('subject-selector');
+                    const variantSelector = document.getElementById('variant-selector');
+
+                    function activeSubject() {
+                        return subjectSelector?.querySelector('li.is-active')?.dataset.subject || '306';
+                    }
+                    function activeVariant() {
+                        return variantSelector?.querySelector('li.is-active')?.dataset.variant || 'ra_eps0.200';
+                    }
+                    function beforeUrl(subject) {
+                        return `./assets/comp/${subject}/original.mp4`;
+                    }
+                    function afterUrl(subject, variant) {
+                        return `./assets/comp/${subject}/masked_${variant}.mp4`;
+                    }
+
+                    function selectLi(container, li) {
+                        container.querySelectorAll('li').forEach((el) => el.classList.remove('is-active'));
+                        li.classList.add('is-active');
+                    }
+
+                    if (subjectSelector) {
+                        subjectSelector.querySelectorAll('li[data-subject]').forEach((li) => {
                             li.addEventListener('click', () => {
-                                selector.querySelectorAll('li').forEach((el) => el.classList.remove('is-active'));
-                                li.classList.add('is-active');
-                                slider.setAfterSource(li.dataset.src);
+                                if (li.classList.contains('is-active')) return;
+                                selectLi(subjectSelector, li);
+                                const subject = li.dataset.subject;
+                                slider.setSources({
+                                    before: beforeUrl(subject),
+                                    after: afterUrl(subject, activeVariant()),
+                                });
+                            });
+                        });
+                    }
+
+                    if (variantSelector) {
+                        variantSelector.querySelectorAll('li[data-variant]').forEach((li) => {
+                            li.addEventListener('click', () => {
+                                if (li.classList.contains('is-active')) return;
+                                selectLi(variantSelector, li);
+                                slider.setAfterSource(afterUrl(activeSubject(), li.dataset.variant));
                             });
                         });
                     }

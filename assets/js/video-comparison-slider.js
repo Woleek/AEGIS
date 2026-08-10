@@ -145,5 +145,22 @@ function syncVideos() {
         await playTogether(true);
     }
 
-    return { setAfterSource };
+    // Swap both clips at once (e.g. a different subject changes both the
+    // unmasked reference and the masked variant) and restart together.
+    async function setSources({ before, after } = {}) {
+        master.pause();
+        follower.pause();
+        if (before) {
+            master.src = before;
+            master.load();
+        }
+        if (after) {
+            follower.src = after;
+            follower.load();
+        }
+        await Promise.all([whenReady(master), whenReady(follower)]);
+        await playTogether(true);
+    }
+
+    return { setAfterSource, setSources };
 }
