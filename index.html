@@ -45,7 +45,7 @@
                                     Pechko</a><sup>2</sup>,</span>
                             <span class="author-block">
                                 <a href="https://scholar.google.pl/citations?user=0kp0MbgAAAAJ&hl=en">Przemysław
-                                    Spurek</a><sup>2</sup>,
+                                    Spurek</a><sup>2,3</sup>,
                             </span>
                             <span class="author-block">
                                 <a href="https://scholar.google.com/citations?user=lBNIbIMAAAAJ&hl=pl">Piotr
@@ -56,7 +56,8 @@
 
                         <div class="is-size-5 publication-authors">
                             <span class="author-block"><sup>1</sup>Wrocław University of Science and Technology</span>,
-                            <span class="author-block"><sup>2</sup>Jagiellonian University</span>
+                            <span class="author-block"><sup>2</sup>Jagiellonian University</span>,
+                            <span class="author-block"><sup>3</sup>IDEAS Research Institute</span>
                         </div>
                         
                         <div class="column has-text-centered">
@@ -126,15 +127,17 @@
                             adversarial masking methods have been developed for 2D images, a significant gap remains in
                             achieving robust, viewpoint-consistent identity protection for dynamic 3D avatars. To
                             address this, we present AEGIS, the first privacy-preserving identity masking framework for
-                            3D Gaussian Avatars that maintains subject's perceived characteristics. Our method aims to
-                            conceal identity-related facial features while preserving the avatar’s perceptual realism
-                            and functional integrity. AEGIS applies adversarial perturbations to the Gaussian color
-                            coefficients, guided by a pre-trained face verification network, ensuring consistent
-                            protection across multiple viewpoints without retraining or modifying the avatar’s geometry.
-                            AEGIS achieves complete de-identification, reducing face retrieval and verification accuracy to
-                            0%, while maintaining high perceptual quality (SSIM = 0.9555, PSNR = 35.52 dB). It also
-                            preserves key facial attributes such as age, race, gender, and emotion, demonstrating strong
-                            privacy protection with minimal visual distortion.
+                            3D Gaussian avatars, concealing identity from automated face recognition while preserving
+                            the avatar's perceptual realism and animation usability. AEGIS applies adversarial
+                            perturbations to the base (DC) color coefficients of the Gaussian primitives, guided by an
+                            ensemble of pre-trained face verification networks, embedding the protection directly in
+                            the 3D representation so that it applies across viewpoints and animations, without
+                            retraining or modifying the avatar's geometry. Evaluated against black-box recognizers,
+                            AEGIS reduces face retrieval and verification accuracy to near-zero while maintaining high
+                            perceptual fidelity. It also preserves key facial attributes such as age, gender, and
+                            emotion, demonstrating strong privacy protection with minimal visual distortion. We further
+                            introduce a viewpoint-robust leakage metric that quantifies residual identity leakage
+                            across an avatar's rendered viewpoints, which single-view evaluation cannot capture.
                         </p>
                     </div>
                 </div>
@@ -151,27 +154,18 @@
                     <h2 class="title is-3">Identity masking pipeline </h2>
                     <div class="content has-text-justified">
                         <p>
-                            The process adversarially optimizes the color parameters \( \mathcal{C}^t \)
-                            of a 3D Gaussian avatar \( \mathcal{G} \) to evade face recognition by the model
-                            \( F(\cdot) \). A fixed reference embedding \( \mathbf{e}_r \) is first obtained
-                            by rendering the original avatar \( \mathcal{G}_0 \) under canonical camera
-                            \( \mathbf{v}_r \) and pose \( \mathbf{p}_r \) parameters, and passing the result
-                            through \( F(\cdot) \). During each PGD optimization step, a set of camera
-                            parameters
-                            \( \{ \mathbf{v}_k \}_{k=1}^K \) is sampled to capture diverse viewpoints.
-                            The updated avatar \( \mathcal{G}_t \) is rendered from these viewpoints using the
-                            rendering function \( R(\cdot) \) and alignment module \( A(\cdot) \), producing a
-                            batch of images.
-                            Identity embeddings \( \{\mathbf{e}_k\} \) are then extracted using \( F(\cdot) \),
-                            and their average
-                            cosine similarity \( \bar{s} \) with the reference embedding \( \mathbf{e}_r \) is
-                            computed.
-                            This similarity defines the logits ( \( \bar{s} \) for "match" and \( -\bar{s} \)
-                            for "no match"),
-                            from which a cross-entropy loss is computed while targeting the "no match" class.
-                            The resulting loss is backpropagated through the network using PGD to update the
-                            color parameters
-                            \( \mathcal{C}^t \), yielding an adversarial 3D representation.
+                            The process adversarially optimizes the DC color coefficients \( \mathcal{C}^t \)
+                            of a 3D Gaussian avatar to suppress its identity under an ensemble of face
+                            recognizers \( F(\cdot) \). A reference embedding \( \mathbf{e}_r \) is computed
+                            once from the original avatar \( \mathcal{G}_0 \) at the canonical camera
+                            \( \mathbf{v}_r \) and pose \( \mathbf{p}_r \). Each PGD step samples camera
+                            parameters \( \{ \mathbf{v}_k \}_{k=1}^K \) to cover diverse viewpoints, renders
+                            the current avatar \( \mathcal{G}_t \) using \( R(\cdot) \), aligns the crops with
+                            \( A(\cdot) \), and extracts embeddings \( \{\mathbf{e}_k\} \) whose mean cosine
+                            similarity \( \bar{s} \) to \( \mathbf{e}_r \), averaged over the sampled
+                            viewpoints and the ensemble, defines the match / no-match logits ( \( \bar{s} \)
+                            and \( -\bar{s} \)). A cross-entropy loss targeting "no match" is backpropagated
+                            to update \( \mathcal{C}^t \), yielding the masked avatar.
                         </p>
                     </div>
                     <div class="column">
@@ -190,9 +184,27 @@
     <section class="section">
         <div class="container is-max-desktop">
             <h3 class="title is-4">Masking</h3>
-            <p class="video-desc">Verification results obtained by the AdaFace system for the avatar
-                protected
-                using the AEGIS method with <b>ϵ = 0.1</b>, shown across various rotation angles and pose variations</p>
+            <p class="video-desc">Example: verification results for one subject's avatar protected
+                using AEGIS, optimized against an ensemble of face verification networks and shown
+                across various rotation angles and pose variations</p>
+
+            <div class="tabs is-toggle is-toggle-rounded is-small is-centered" id="variant-selector">
+                <ul>
+                    <li data-src="./assets/comp/masked_video_sim_eps0.100.mp4">
+                        <a>AEGIS ε = 0.1</a>
+                    </li>
+                    <li data-src="./assets/comp/masked_video_sim_eps0.200.mp4">
+                        <a>AEGIS ε = 0.2</a>
+                    </li>
+                    <li data-src="./assets/comp/masked_video_sim_eps0.300.mp4">
+                        <a>AEGIS ε = 0.3</a>
+                    </li>
+                    <li class="is-active" data-src="./assets/comp/masked_video_sim_ra_eps0.200.mp4">
+                        <a>AEGIS RA ε = 0.2</a>
+                    </li>
+                </ul>
+            </div>
+
             <section class="hero is-light is-small">
                 <div class="hero-body">
                     <div class="comparison-container">
@@ -201,17 +213,17 @@
                         <!-- The Video Slider Component -->
                         <div class="video-comparison-slider" id="video-slider">
 
-                            <!-- Before on the LEFT -->
+                            <!-- Before on the LEFT: unmasked reference (fixed) -->
                             <div class="video-before">
-                                <video muted autoplay playsinline loop>
-                                    <source src="./assets/comp/masked_video_sim.mp4" type="video/mp4">
+                                <video muted playsinline preload="auto">
+                                    <source src="./assets/comp/original_video_sim.mp4" type="video/mp4">
                                 </video>
                             </div>
 
-                            <!-- After on the RIGHT (resizable layer) -->
+                            <!-- After on the RIGHT: selected masked variant (swappable) -->
                             <div class="video-after" id="video-after-wrapper">
-                                <video muted autoplay playsinline loop>
-                                    <source src="./assets/comp/original_video_sim.mp4" type="video/mp4">
+                                <video muted playsinline preload="auto">
+                                    <source src="./assets/comp/masked_video_sim_ra_eps0.200.mp4" type="video/mp4">
                                 </video>
                             </div>
 
@@ -225,7 +237,8 @@
                         <div class="video-legend">
                             <div class="legend-items">
                                 <span class="legend-item">
-                                    <strong>Sim</strong> — similarity between reference image and rendered frame
+                                    <strong>Sim</strong> — cosine similarity to the reference gallery, scored by
+                                    a held-out recognizer (FaceNet)
                                 </span>
                                 <span class="legend-item">
                                     <span class="legend-dot green"></span>
@@ -295,7 +308,18 @@
                 import { initVideoSlider } from './assets/js/video-comparison-slider.js';
 
                 document.addEventListener('DOMContentLoaded', () => {
-                    initVideoSlider();
+                    const slider = initVideoSlider();
+
+                    const selector = document.getElementById('variant-selector');
+                    if (selector) {
+                        selector.querySelectorAll('li[data-src]').forEach((li) => {
+                            li.addEventListener('click', () => {
+                                selector.querySelectorAll('li').forEach((el) => el.classList.remove('is-active'));
+                                li.classList.add('is-active');
+                                slider.setAfterSource(li.dataset.src);
+                            });
+                        });
+                    }
                 });
             </script>
 

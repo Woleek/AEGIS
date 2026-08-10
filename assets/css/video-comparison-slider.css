@@ -9,17 +9,21 @@
     padding-bottom: 8px;
 }
 
+#variant-selector {
+    margin-bottom: 16px;
+}
+
 /* BEFORE video = full width (base layer) */
 .video-before video {
     width: 100%;
     display: block;
 }
 
-/* AFTER = clipped from the right */
+/* AFTER = clipped from the right, growing leftward as the handle moves right */
 .video-after {
     position: absolute;
     top: 0;
-    left: 0;
+    right: 0;
     height: 100%;
     width: 50%;
     /* initial: show right half */
@@ -32,7 +36,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: left;
+    object-position: right;
 }
 
 /* Handle bar */
